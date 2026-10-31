@@ -1,0 +1,366 @@
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
+import type { ChangeEvent } from 'react'
+import type { Material, SceneDocument, SceneObject, Surface } from './sceneTypes'
+import { assignMaterialToSurface, findSurfaceOwner } from './sceneTypes'
+import { faceSizeMeters, textureRepeat, updateMaterial, updateSurfaceUv } from './materialEditor'
+import {
+  archiveOptionalObject, isStructuralObject, restoreArchivedObject, rotationDegrees, rotationQuaternion,
+  updateObjectTransform, updateObjectVisibility,
+} from './objectEditor'
+import type { ObjectTransform, TransformMode } from './objectEditor'
+import { sceneSummary } from './sceneSummary'
+import './App.css'
+
+const sampleSceneId = '11111111-1111-4111-8111-111111111111'
+const SceneViewer = lazy(() => import('./SceneViewer').then((module) => ({ default: module.SceneViewer })))
+const mapFields = [
+  ['baseColor', 'Base color texture'], ['roughness', 'Roughness map'], ['metalness', 'Metalness map'], ['normal', 'Normal map'],
+] as const
+
+function NumericField({ label, value, min, max, step, onCommit }: { label: string; value: number; min: number; max: number; step: number; onCommit: (value: number) => void }) {
+  const [draft, setDraft] = useState(String(value))
+  const [previousValue, setPreviousValue] = useState(value)
+  if (value !== previousValue) {
+    setPreviousValue(value)
+    setDraft(String(value))
+  }
+  function commitDraft() {
+    const next = Number(draft)
+    if (!Number.isFinite(next) || next < min || next > max) setDraft(String(value))
+    else if (next !== value) onCommit(next)
+  }
+  return <input
+    aria-label={label}
+    type="number"
+    min={min}
+    max={max}
+    step={step}
+    value={draft}
+    onChange={(event) => setDraft(event.currentTarget.value)}
+    onBlur={commitDraft}
+    onKeyDown={(event) => {
+      if (event.key !== 'Enter') return
+      event.preventDefault()
+      const next = Number(event.currentTarget.value)
+      if (Number.isFinite(next) && next >= min && next <= max && next !== value) onCommit(next)
+      else if (!Number.isFinite(next) || next < min || next > max) setDraft(String(value))
+    }}
+  />
+}
+
+function App() {
+  const [scene, setScene] = useState<SceneDocument | null>(null)
+  const [past, setPast] = useState<SceneDocument[]>([])
+  const [future, setFuture] = useState<SceneDocument[]>([])
+  const [selectedSurfaceId, setSelectedSurfaceId] = useState<string | null>(null)
+  const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null)
+  const [transformMode, setTransformMode] = useState<TransformMode>('translate')
+  const [deleteConfirmationId, setDeleteConfirmationId] = useState<string | null>(null)
+  const [activeMaterialId, setActiveMaterialId] = useState<string | null>(null)
+  const [status, setStatus] = useState('Loading sample room…')
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(true)
+  const [uploadingMap, setUploadingMap] = useState<string | null>(null)
+
+  const loadScene = useCallback(async (showSpinner = true) => {
+    if (showSpinner) { setBusy(true); setError(null) }
+    try {
+      const sampleResponse = await fetch('/api/sample-scene')
+      if (!sampleResponse.ok) throw new Error(`Sample scene request failed (${sampleResponse.status})`)
+      const sample = await sampleResponse.json() as SceneDocument
+      sceneSummary(sample)
+      const savedResponse = await fetch(`/api/scenes/${sampleSceneId}`)
+      let loaded: SceneDocument
+      if (savedResponse.ok) {
+        loaded = await savedResponse.json() as SceneDocument
+        sceneSummary(loaded)
+        setStatus(`Loaded saved scene · revision ${loaded.revision}`)
+      } else if (savedResponse.status === 404) {
+        loaded = { ...sample, revision: 0 }
+        setStatus('Sample room ready · save to create the first database revision')
+      } else {
+        const body = await savedResponse.json().catch(() => null)
+        throw new Error(body?.detail ?? `Scene load failed (${savedResponse.status})`)
+      }
+      setScene(loaded)
+      setPast([])
+      setFuture([])
+      setActiveMaterialId(loaded.materials[0]?.id ?? null)
+      setSelectedSurfaceId(null)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Unable to load the scene')
+      setStatus('Scene unavailable')
+    } finally { setBusy(false) }
+  }, [])
+
+  // Fetch the canonical persisted scene when the editor mounts.
+  // oxlint-disable-next-line react/set-state-in-effect
+  useEffect(() => { void loadScene(false) }, [loadScene])
+
+  const selected = useMemo(() => scene && selectedSurfaceId ? findSurfaceOwner(scene, selectedSurfaceId) : null, [scene, selectedSurfaceId])
+  const selectedObject = scene?.objects.find((object) => object.id === selectedObjectId) ?? null
+  const activeMaterial = scene?.materials.find((material) => material.id === activeMaterialId) ?? null
+  const selectedFaceSize = selected ? faceSizeMeters(selected.object, selected.surface.faceId) : null
+  const selectedRepeats = selected && selected.material && selectedFaceSize
+    ? textureRepeat(selectedFaceSize, selected.material.tileSizeMeters, selected.surface.uv?.repeat ?? [1, 1]) : null
+
+  function commit(next: SceneDocument, message = 'Material changed · save to persist') {
+    if (!scene) return
+    setPast((entries) => [...entries, scene].slice(-50))
+    setFuture([])
+    setScene(next)
+    setStatus(message)
+  }
+
+  function assignMaterial(materialId: string) {
+    if (!scene || !selectedSurfaceId) return
+    commit(assignMaterialToSurface(scene, selectedSurfaceId, materialId), 'Surface assignment changed · save to persist')
+  }
+
+  function editMaterial(patch: Partial<Omit<Material, 'id'>>) {
+    if (scene && activeMaterialId) commit(updateMaterial(scene, activeMaterialId, patch))
+  }
+
+  function editSurfaceUv(patch: NonNullable<Surface['uv']>) {
+    if (scene && selectedSurfaceId) commit(updateSurfaceUv(scene, selectedSurfaceId, patch))
+  }
+
+  function selectObject(object: SceneObject) {
+    setSelectedObjectId(object.id)
+    setSelectedSurfaceId(null)
+    setDeleteConfirmationId(null)
+  }
+
+  function selectSurface(surface: Surface) {
+    if (!scene) return
+    const owner = findSurfaceOwner(scene, surface.id)
+    setSelectedSurfaceId(surface.id)
+    if (owner) setSelectedObjectId(owner.object.id)
+    setDeleteConfirmationId(null)
+    setStatus(`Selected ${surface.semanticRole}`)
+  }
+
+  function editObjectTransform(transform: ObjectTransform) {
+    if (scene && selectedObjectId) commit(updateObjectTransform(scene, selectedObjectId, transform), 'Object transform changed · save to persist')
+  }
+
+  function editObjectRotation(axis: number, value: number) {
+    if (!selectedObject) return
+    const degrees = rotationDegrees(selectedObject.rotation)
+    degrees[axis] = value
+    editObjectTransform({ ...selectedObject, rotation: rotationQuaternion(degrees) })
+  }
+
+  function toggleObjectVisibility(object: SceneObject) {
+    if (scene) commit(updateObjectVisibility(scene, object.id, !object.visible), `${object.visible ? 'Object hidden' : 'Object shown'} · save to persist`)
+  }
+
+  function deleteSelectedObject() {
+    if (!scene || !selectedObject || isStructuralObject(selectedObject)) return
+    commit(archiveOptionalObject(scene, selectedObject.id), 'Optional object archived · use Restore or Undo to recover it')
+    setSelectedObjectId(null)
+    setSelectedSurfaceId(null)
+    setDeleteConfirmationId(null)
+  }
+
+  function restoreObject(objectId: string) {
+    if (!scene) return
+    const restored = restoreArchivedObject(scene, objectId)
+    commit(restored, 'Optional object restored · save to persist')
+    setSelectedObjectId(objectId)
+    setSelectedSurfaceId(null)
+  }
+
+  function addMaterial() {
+    if (!scene) return
+    const material: Material = {
+      id: crypto.randomUUID(), name: `New material ${scene.materials.length + 1}`, baseColor: '#c8a37c', roughness: 0.7,
+      metalness: 0, tileSizeMeters: [0.6, 0.6], maps: {},
+    }
+    commit({ ...scene, materials: [...scene.materials, material] }, 'New material added · save to persist')
+    setActiveMaterialId(material.id)
+  }
+
+  async function uploadTexture(event: ChangeEvent<HTMLInputElement>, mapKey: string) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file || !activeMaterial || !scene) return
+    setUploadingMap(mapKey)
+    setError(null)
+    try {
+      const response = await fetch('/api/assets/textures', { method: 'POST', headers: { 'Content-Type': file.type }, body: file })
+      const result = await response.json().catch(() => null)
+      if (!response.ok) throw new Error(result?.error ?? result?.detail ?? `Texture upload failed (${response.status})`)
+      editMaterial({ maps: { ...activeMaterial.maps, [mapKey]: result.url as string } })
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Texture upload failed')
+    } finally { setUploadingMap(null) }
+  }
+
+  function undo() {
+    if (!scene || past.length === 0) return
+    setFuture((entries) => [scene, ...entries])
+    setScene(past[past.length - 1])
+    setPast((entries) => entries.slice(0, -1))
+    setStatus('Material edit undone · save to persist')
+  }
+
+  function redo() {
+    if (!scene || future.length === 0) return
+    setPast((entries) => [...entries, scene])
+    setScene(future[0])
+    setFuture((entries) => entries.slice(1))
+    setStatus('Material edit restored · save to persist')
+  }
+
+  async function saveScene() {
+    if (!scene) return
+    setBusy(true)
+    setError(null)
+    try {
+      const documentJson = JSON.stringify(scene)
+      setStatus(`Saving scene JSON · ${documentJson.length} bytes`)
+      const response = await fetch(`/api/scenes/${scene.sceneId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'If-Match': `"${scene.revision}"` },
+        body: documentJson,
+      })
+      if (response.status === 409) throw new Error('Scene changed in another session. Reload the latest revision and apply your edit again.')
+      if (!response.ok) {
+        const body = await response.json().catch(() => null)
+        throw new Error(body?.detail ?? `Save failed (${response.status})`)
+      }
+      const saved = await response.json() as SceneDocument
+      setScene(saved)
+      setPast([])
+      setFuture([])
+      setStatus(`Saved to PostgreSQL · revision ${saved.revision}`)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Unable to save the scene')
+    } finally { setBusy(false) }
+  }
+
+  if (!scene) return <main className="loading"><div className="brand-mark">RF</div><p>{status}</p>{error && <p role="alert">{error}</p>}<button onClick={() => void loadScene()} disabled={busy}>Retry</button></main>
+
+  return <main className="workspace">
+    <header className="topbar">
+      <div className="brand"><div className="brand-mark">RF</div><div><strong>RoomForge</strong><span>Studio</span></div></div>
+      <div className="project-title"><span className="crumb">Projects&nbsp; / &nbsp;</span> Sample room <span className="saved-indicator" aria-label={status}>{status.startsWith('Saved') ? 'Saved' : 'Editing'}</span></div>
+      <div className="top-actions">
+        <button className="quiet-button" onClick={undo} disabled={busy || past.length === 0} aria-label="Undo edit">Undo</button>
+        <button className="quiet-button" onClick={redo} disabled={busy || future.length === 0} aria-label="Redo edit">Redo</button>
+        <button className="quiet-button" onClick={() => void loadScene()} disabled={busy}>Reload</button>
+        <button className="save-button" onClick={() => void saveScene()} disabled={busy}>{busy ? 'Working…' : 'Save scene'}</button>
+      </div>
+    </header>
+    <div className="body-layout">
+      <aside className="left-rail"><button className="rail-button active" aria-label="Room editor">◈</button><button className="rail-button" aria-label="Materials" title="Material library and PBR editor">▧</button><button className="rail-button" aria-label="Photo annotations" disabled title="Photo annotations arrive in Phase 03">◤</button></aside>
+      <section className="viewport-panel" aria-label="3D room viewer">
+        <div className="viewport-heading"><div><span className="eyebrow">3D VIEW</span><h1>Sample room</h1></div><span className="unit-pill">METERS · Y UP</span></div>
+        <div className="scene-canvas"><Suspense fallback={<div className="canvas-loading">Preparing 3D room…</div>}><SceneViewer scene={scene} selectedSurfaceId={selectedSurfaceId} selectedObjectId={selectedObjectId} transformMode={transformMode} onSelect={selectSurface} onSelectObject={selectObject} onTransform={(objectId, transform) => commit(updateObjectTransform(scene, objectId, transform), 'Object transform changed · save to persist')} /></Suspense><div className="canvas-hint">Drag to orbit <i /> Scroll to zoom <i /> Select objects or surfaces to edit</div></div>
+        <div className="scene-footer"><span>Authored sample fixture</span><span>{scene.objects.length} objects · {scene.objects.reduce((count, object) => count + object.surfaces.length, 0)} selectable surfaces</span><span>Revision {scene.revision}</span></div>
+      </section>
+      <aside className="inspector">
+        <div className="inspector-head"><span className="eyebrow">ROOM EDITOR</span><h2>{selected ? selected.surface.semanticRole.replaceAll('_', ' ') : selectedObject?.name ?? 'Choose an object or surface'}</h2></div>
+        {selected && <div className="selection-card"><span className="selection-dot" /><div><strong>{selected.object.name}</strong><small>{selected.surface.id}</small></div></div>}
+
+        <section className="object-library" aria-label="Objects">
+          <div className="section-title"><span className="field-label">OBJECTS ({scene.objects.length})</span></div>
+          {scene.objects.map((object) => <div className={`object-row${object.id === selectedObjectId ? ' selected' : ''}`} key={object.id}>
+            <button className="object-select" aria-label={`Select object ${object.name}`} aria-pressed={object.id === selectedObjectId} onClick={() => selectObject(object)}>
+              <strong>{object.name}</strong><small>{object.category}{object.locked ? ' · locked' : ''}</small>
+            </button>
+            <button className="object-icon-button" aria-label={`${object.visible ? 'Hide' : 'Show'} ${object.name}`} title={`${object.visible ? 'Hide' : 'Show'} object`} onClick={() => toggleObjectVisibility(object)}>{object.visible ? '◉' : '○'}</button>
+            <button className="object-icon-button danger" aria-label={`Delete ${object.name}`} title={isStructuralObject(object) ? 'Structural objects are protected from deletion' : 'Archive optional object'} disabled={isStructuralObject(object)} onClick={() => { selectObject(object); setDeleteConfirmationId(object.id) }}>×</button>
+          </div>)}
+          {(scene.deletedObjects?.length ?? 0) > 0 && <div className="deleted-objects" aria-label="Deleted optional objects">
+            <span className="field-label">ARCHIVED OBJECTS</span>
+            {scene.deletedObjects!.map((object) => <div className="object-row" key={object.id}><span><strong>{object.name}</strong><small>Archived · ID preserved</small></span><button className="text-button" aria-label={`Restore ${object.name}`} onClick={() => restoreObject(object.id)}>Restore</button></div>)}
+          </div>}
+        </section>
+
+        {selectedObject && <section className="object-properties" aria-label="Selected object properties">
+          <span className="field-label">OBJECT TRANSFORM · METERS</span>
+          <small className="object-id">{selectedObject.id}</small>
+          <div className="transform-modes" role="group" aria-label="Transform gizmo mode">
+            <button aria-label="Move gizmo" aria-pressed={transformMode === 'translate'} onClick={() => setTransformMode('translate')}>Move</button>
+            <button aria-label="Rotate gizmo" aria-pressed={transformMode === 'rotate'} onClick={() => setTransformMode('rotate')}>Rotate</button>
+            <button aria-label="Resize gizmo" aria-pressed={transformMode === 'scale'} onClick={() => setTransformMode('scale')}>Resize</button>
+          </div>
+          <div className="two-fields">
+            {(['X', 'Y', 'Z'] as const).map((axis, index) => <label key={`position-${axis}`}><span className="field-label">Position {axis} (m)</span><NumericField label={`Position ${axis} (m)`} min={-100} max={100} step={0.01} value={selectedObject.position[index]} onCommit={(value) => { const position = [...selectedObject.position] as [number, number, number]; position[index] = value; editObjectTransform({ ...selectedObject, position }) }} /></label>)}
+          </div>
+          <div className="two-fields">
+            {(['X', 'Y', 'Z'] as const).map((axis, index) => <label key={`rotation-${axis}`}><span className="field-label">Rotate {axis} (°)</span><NumericField label={`Rotate ${axis} (degrees)`} min={-36000} max={36000} step={1} value={rotationDegrees(selectedObject.rotation)[index]} onCommit={(value) => editObjectRotation(index, value)} /></label>)}
+          </div>
+          <div className="two-fields">
+            {(['Width', 'Height', 'Depth'] as const).map((axis, index) => <label key={`dimension-${axis}`}><span className="field-label">{axis} (m)</span><NumericField label={`${axis} (m)`} min={0.01} max={100} step={0.01} value={selectedObject.dimensions[index]} onCommit={(value) => { const dimensions = [...selectedObject.dimensions] as [number, number, number]; dimensions[index] = value; editObjectTransform({ ...selectedObject, dimensions }) }} /></label>)}
+          </div>
+          <button className="visibility-button" onClick={() => toggleObjectVisibility(selectedObject)}>{selectedObject.visible ? 'Hide object' : 'Show object'}</button>
+          {isStructuralObject(selectedObject) ? <p className="protected-note">Structural objects are protected from deletion.</p> : <button className="delete-object-button" onClick={() => setDeleteConfirmationId(selectedObject.id)}>Delete optional object</button>}
+          {deleteConfirmationId === selectedObject.id && <div className="delete-confirmation" role="alertdialog" aria-label="Confirm object deletion"><strong>Archive {selectedObject.name}?</strong><span>The object and its stable IDs remain recoverable. Undo or Restore brings it back.</span><div><button onClick={() => setDeleteConfirmationId(null)}>Cancel</button><button onClick={deleteSelectedObject}>Confirm delete</button></div></div>}
+        </section>}
+
+        <section className="material-library" aria-label="Material library">
+          <div className="section-title"><span className="field-label">MATERIAL LIBRARY</span><button className="text-button" onClick={addMaterial}>+ New</button></div>
+          <div className="material-cards">
+            {scene.materials.map((material) => <button key={material.id} className={`material-card${material.id === activeMaterialId ? ' active' : ''}`} aria-label={`Edit material ${material.name}`} aria-pressed={material.id === activeMaterialId} onClick={() => setActiveMaterialId(material.id)}>
+              <span className="material-swatch" style={{
+                backgroundColor: material.baseColor,
+                backgroundImage: material.maps.baseColor ? `url("${material.maps.baseColor}")` : undefined,
+                backgroundSize: material.maps.baseColor ? `${Math.max(14, 22 * material.tileSizeMeters[0] / material.tileSizeMeters[1])}px 22px` : undefined,
+                backgroundRepeat: material.maps.baseColor ? 'repeat' : undefined,
+              }} />
+              <span><strong>{material.name}</strong><small>{material.tileSizeMeters[0]} × {material.tileSizeMeters[1]} m</small></span>
+            </button>)}
+          </div>
+          {selected && activeMaterial && <button className="assign-button" onClick={() => assignMaterial(activeMaterial.id)} disabled={selected.surface.materialId === activeMaterial.id}>Assign to selected surface</button>}
+        </section>
+
+        {activeMaterial && <section className="material-properties" aria-label="Material properties">
+          <label className="field-label" htmlFor="material-name">Material name</label>
+          <input id="material-name" value={activeMaterial.name} onChange={(event) => editMaterial({ name: event.target.value })} maxLength={80} />
+          <label className="field-label" htmlFor="material-color">Base color</label>
+          <div className="color-field"><input id="material-color" type="color" value={activeMaterial.baseColor} onChange={(event) => editMaterial({ baseColor: event.target.value })} /><span>{activeMaterial.baseColor.toUpperCase()}</span></div>
+          <div className="two-fields">
+            <label><span className="field-label">Tile width (m)</span><NumericField label="Tile width (m)" min={0.01} max={20} step={0.01} value={activeMaterial.tileSizeMeters[0]} onCommit={(value) => editMaterial({ tileSizeMeters: [value, activeMaterial.tileSizeMeters[1]] })} /></label>
+            <label><span className="field-label">Tile height (m)</span><NumericField label="Tile height (m)" min={0.01} max={20} step={0.01} value={activeMaterial.tileSizeMeters[1]} onCommit={(value) => editMaterial({ tileSizeMeters: [activeMaterial.tileSizeMeters[0], value] })} /></label>
+          </div>
+          <label className="range-field"><span className="range-label"><span className="field-label">Roughness</span><output>{activeMaterial.roughness.toFixed(2)}</output></span><input aria-label="Roughness" type="range" min="0" max="1" step="0.01" value={activeMaterial.roughness} onChange={(event) => editMaterial({ roughness: Number(event.target.value) })} /></label>
+          <label className="range-field"><span className="range-label"><span className="field-label">Metalness</span><output>{activeMaterial.metalness.toFixed(2)}</output></span><input aria-label="Metalness" type="range" min="0" max="1" step="0.01" value={activeMaterial.metalness} onChange={(event) => editMaterial({ metalness: Number(event.target.value) })} /></label>
+          <div className="texture-maps"><span className="field-label">PBR TEXTURE MAPS</span>
+            {mapFields.map(([mapKey, title]) => <label className="texture-upload" key={mapKey}>{title}<span>{activeMaterial.maps[mapKey] ? 'Uploaded · replace' : uploadingMap === mapKey ? 'Uploading…' : 'Upload image'}</span><input aria-label={title} type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => void uploadTexture(event, mapKey)} disabled={uploadingMap !== null} /></label>)}
+          </div>
+        </section>}
+
+        {selected && selectedFaceSize && selectedRepeats && <section className="surface-uv" aria-label="Selected surface texture mapping">
+          <span className="field-label">SURFACE TEXTURE MAPPING</span>
+          <div className="two-fields">
+            <label><span className="field-label">Rotation (°)</span><NumericField label="Texture rotation" min={-36000} max={36000} step={1} value={selected.surface.uv?.rotationDegrees ?? 0} onCommit={(value) => editSurfaceUv({ rotationDegrees: value, offset: selected.surface.uv?.offset ?? [0, 0], repeat: selected.surface.uv?.repeat ?? [1, 1] })} /></label>
+            <label><span className="field-label">Offset U</span><NumericField label="Texture offset U" min={0} max={1} step={0.05} value={selected.surface.uv?.offset[0] ?? 0} onCommit={(value) => editSurfaceUv({ rotationDegrees: selected.surface.uv?.rotationDegrees ?? 0, offset: [value, selected.surface.uv?.offset[1] ?? 0], repeat: selected.surface.uv?.repeat ?? [1, 1] })} /></label>
+          </div>
+          <div className="two-fields">
+            <label><span className="field-label">Offset V</span><NumericField label="Texture offset V" min={0} max={1} step={0.05} value={selected.surface.uv?.offset[1] ?? 0} onCommit={(value) => editSurfaceUv({ rotationDegrees: selected.surface.uv?.rotationDegrees ?? 0, offset: [selected.surface.uv?.offset[0] ?? 0, value], repeat: selected.surface.uv?.repeat ?? [1, 1] })} /></label>
+          </div>
+          <div className="two-fields">
+            <label><span className="field-label">Repeat U</span><NumericField label="Texture repeat U" min={0.01} max={100} step={0.1} value={selected.surface.uv?.repeat?.[0] ?? 1} onCommit={(value) => editSurfaceUv({ rotationDegrees: selected.surface.uv?.rotationDegrees ?? 0, offset: selected.surface.uv?.offset ?? [0, 0], repeat: [value, selected.surface.uv?.repeat?.[1] ?? 1] })} /></label>
+            <label><span className="field-label">Repeat V</span><NumericField label="Texture repeat V" min={0.01} max={100} step={0.1} value={selected.surface.uv?.repeat?.[1] ?? 1} onCommit={(value) => editSurfaceUv({ rotationDegrees: selected.surface.uv?.rotationDegrees ?? 0, offset: selected.surface.uv?.offset ?? [0, 0], repeat: [selected.surface.uv?.repeat?.[0] ?? 1, value] })} /></label>
+          </div>
+          <output className="repeat-summary">Physical repeats: {selectedRepeats[0].toFixed(2)} × {selectedRepeats[1].toFixed(2)} across {selectedFaceSize[0].toFixed(2)} × {selectedFaceSize[1].toFixed(2)} m</output>
+        </section>}
+
+        {error && <p className="error-message" role="alert">{error}</p>}
+        <div className="surface-list" aria-label="Selectable surfaces">
+          <span className="field-label">ROOM SURFACES</span>
+          {scene.objects.flatMap((object) => object.surfaces.map((surface) => ({ object, surface }))).map(({ object, surface }) =>
+            <button key={surface.id} className={`surface-row${surface.id === selectedSurfaceId ? ' selected' : ''}`} aria-pressed={surface.id === selectedSurfaceId} onClick={() => { setSelectedSurfaceId(surface.id); setStatus(`Selected ${surface.semanticRole}`) }}>
+              <span>{surface.semanticRole.replaceAll('_', ' ')}</span><small>{object.name}</small>
+            </button>)}
+        </div>
+        <div className="inspector-status" aria-live="polite"><span className={error ? 'status-dot error' : 'status-dot'} />{status}</div>
+      </aside>
+    </div>
+  </main>
+}
+
+export default App

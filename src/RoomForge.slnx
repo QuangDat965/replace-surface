@@ -1,0 +1,7 @@
+<Solution>
+  <Project Path="../tests/RoomForge.UnitTests/RoomForge.UnitTests.csproj" />
+  <Project Path="RoomForge.Api/RoomForge.Api.csproj" />
+  <Project Path="RoomForge.Application/RoomForge.Application.csproj" />
+  <Project Path="RoomForge.Domain/RoomForge.Domain.csproj" />
+  <Project Path="RoomForge.Infrastructure/RoomForge.Infrastructure.csproj" />
+</Solution>

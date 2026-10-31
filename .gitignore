@@ -1,0 +1,12 @@
+**/bin/
+**/obj/
+**/node_modules/
+**/dist/
+**/coverage/
+.env
+.env.*.local
+*.user
+*.suo
+.vs/
+artifacts/
+data/
