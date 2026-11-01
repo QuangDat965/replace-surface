@@ -51,3 +51,7 @@ Project, ImageAsset, SceneVersion (JSONB), Material, Asset, ProcessingJob; large
 
 ## Camera/geometry caution
 Single images have ambiguous camera parameters, global scale and occluded shapes. A depth API alone does not guarantee a metric room. Demand user-provided reference lengths and allow overrides. Prioritize parametric surfaces over one-shot full-room meshes to preserve material editing.
+
+## Reconstruction foundation (Phases 03 + 04)
+
+Room images use the existing asset-storage abstraction with bounded full decode and server-generated storage IDs. Image metadata and idempotent reconstruction jobs are persisted in PostgreSQL. An ASP.NET Core `BackgroundService` leases work, records progress/attempt state, recovers expired processing leases, and supports cancellation/retry. Analysis contracts are provider-neutral and versioned; only deterministic mock providers are registered. The web review flow supports inclusion, type/dimension edits, scale/camera assumption review, non-persisting preview, and explicit revision-checked application into canonical Scene JSON. Phase 05/06 real provider adapters remain out of scope.

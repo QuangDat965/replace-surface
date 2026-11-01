@@ -32,3 +32,14 @@ Use Problem Details for bad input/unsupported capability/revision conflicts. Map
 ## Phase 01 local PostgreSQL boundary
 
 The Phase 01 API accepts only a `ConnectionStrings:RoomForge` value (or the existing `ConnectionStrings:RoomForgeDatabase` alias) targeting local PostgreSQL port 5432 and database `roomforge`. A separate provisioning command accepts only local port 5432 and maintenance database `postgres`; it creates `roomforge` when absent. Neither path can connect to `banhang`. Configure values with .NET User Secrets or environment variables. No SQLite fallback or Docker dependency is supported.
+
+## Reconstruction foundation (Phases 03 + 04)
+
+- `POST /api/projects/{projectId}/images` multipart field `image` accepts bounded, fully decoded PNG/JPEG/WebP images and returns image metadata plus a server-owned asset URL. `GET /api/assets/images/{storageId}` streams stored bytes; client filenames and paths are not used as storage paths.
+- `GET /api/reconstruction/capabilities` reports mock-only capabilities and explicitly unavailable outputs.
+- `POST /api/projects/{projectId}/reconstruction-jobs` accepts `{imageId,idempotencyKey}` and returns HTTP 202 with the existing job for duplicate project/key submissions.
+- `GET /api/reconstruction/jobs/{jobId}`, `POST .../{jobId}/cancel`, and `POST .../{jobId}/retry` expose durable status, progress, cancellation, and bounded retry.
+- `POST /api/reconstruction/jobs/{jobId}/preview` accepts a reviewed v1 analysis and optional target scene/revision. It builds and stores a candidate only; it does not mutate Scene JSON.
+- `GET /api/reconstruction/jobs/{jobId}/preview` returns the candidate document. `POST /api/reconstruction/jobs/{jobId}/apply` requires `{confirmed:true,expectedRevision}` and applies through normal Scene persistence with revision conflict protection.
+
+`SceneAnalysisResult` is a versioned review artifact, separate from canonical editable `SceneDocument`. Analysis provenance and camera/scale assumptions remain explicit. Updating an existing scene requires explicit object/surface links; unmatched entities get new UUIDs. The original scene is unchanged until a matching preview is explicitly confirmed and applied.

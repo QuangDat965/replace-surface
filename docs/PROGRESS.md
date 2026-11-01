@@ -75,3 +75,28 @@ Verification actually run:
 - `git diff --check`: passed.
 
 All database access used only the configured local `roomforge` database (and the existing constrained provisioner where applicable). `banhang` was never accessed. No credentials were printed or committed. No AI provider integration, Docker requirement, SQLite, or schema migration was introduced for this follow-up.
+
+## 2026-10-31 — AI reconstruction foundation (Phases 03 + 04, active)
+
+Roadmap numbering is unchanged: Phase 03 remains **Manual photo reconstruction**, Phase 04 remains **Durable AI jobs with mock provider**, Phase 05 remains real perception, and Phase 06 remains real image-to-3D. This task delivered a shared upload → durable mock analysis → human review → candidate preview → explicitly confirmed Scene JSON application path. No paid provider integration was started.
+
+Implemented a versioned `SceneAnalysisResult` v1 contract with bounded image dimensions and image-space polygons, detected surfaces/objects, confidence/provenance, estimated dimensions and positions, and explicit camera/scale assumptions. Unknown scale remains unknown unless a user adds a measured pixel/real-length anchor. Provider-neutral Application interfaces cover scene understanding, segmentation, depth estimation, image-to-3D, and capability discovery. Only deterministic mock providers are registered; mock outputs explicitly identify their provenance, and image-to-3D reports unavailable with primitive fallback.
+
+Added decoded and bounded PNG/JPEG/WebP room-image upload through the existing local asset store, PostgreSQL image metadata and durable reconstruction jobs, idempotency keys, bounded attempts, leases/recovery, progress, cancel/retry states, and a .NET background worker. The React review workspace supports image-space mask review, object inclusion/exclusion, type and dimension edits, explicit object/surface links, camera/scale assumption review, non-persisting preview, and explicit revision-checked apply. Existing Scene JSON remains canonical; preview does not write the scene, and linked identities/material/UV data are retained. The original scene changes only after confirmation.
+
+The additive EF migration `20261031131534_AddReconstructionJobs` was applied to the configured local PostgreSQL `roomforge` database. `scripts/verify-reconstruction-persistence.ps1` passed: it uploaded an image, created an idempotent mock job, verified completed result and preview non-mutation, rejected unconfirmed apply, explicitly applied a candidate, restarted the API process, then reloaded the job, image bytes and saved Scene JSON with stable ObjectId/SurfaceIds and surface material/UV data. The API health endpoint reported only `roomforge`; `banhang` was never accessed and credentials were not printed.
+
+Verification actually run:
+
+- `dotnet build src/RoomForge.slnx --no-restore -m:1 -nr:false -v:minimal`: passed, zero warnings/errors.
+- `dotnet test src/RoomForge.slnx -m:1 -nr:false -v:minimal`: 18 passed, including contract validation, deterministic mock capability behavior, object exclusion and stable identity conversion.
+- `npm --prefix apps/web run build`: passed.
+- `npm --prefix apps/web run test`: 10 passed across 3 files.
+- `npm --prefix apps/web run lint`: passed.
+- `npm --prefix apps/web run test:e2e`: 4 passed serially, including secure invalid-image rejection, mock upload/job/review/idempotency, preview non-mutation, explicit apply and stable identities, plus the existing material and object-editing browser flows. The reconstruction E2E reseeds and restores its reserved sample-scene fixture to avoid cross-test state contamination.
+- `scripts/verify-reconstruction-persistence.ps1`: passed after an actual API restart against `roomforge`.
+- `git diff --check`: passed after final edits.
+
+Phase 03 and Phase 04 remain active rather than being marked complete: the current foundation reviews provider-produced image polygons but does not yet provide direct polygon drawing/edit handles or the full manual-only parametric room-authoring workflow. The current verification proves success/idempotency and restart persistence; exhaustive transient-failure injection and retry-after-failure recovery still need a dedicated test before Phase 04's complete acceptance gate. Phases 05 and 06 remain out of scope.
+
+Pre-commit re-verification of this slice: `dotnet build src/RoomForge.slnx --no-restore -m:1 -nr:false -v:minimal` passed with zero warnings/errors; `dotnet test src/RoomForge.slnx --no-build` passed 18/18; `npm --prefix apps/web run test` passed 10/10; `git diff --check` passed. The web dev proxy and Playwright webServer now target the API's configured `http://127.0.0.1:5248` profile port instead of `5080`. Playwright was not re-run for this re-verification (it was run earlier with 4 passing).

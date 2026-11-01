@@ -3,6 +3,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using RoomForge.Application.Projects;
 using RoomForge.Application.Scenes;
+using RoomForge.Application.Reconstruction;
+using RoomForge.Infrastructure.Reconstruction;
 
 namespace RoomForge.Infrastructure.Persistence;
 
@@ -16,6 +18,17 @@ public static class RoomForgePersistenceExtensions
         services.AddScoped<IProjectStore, EfProjectStore>();
         services.AddScoped<ProjectPersistence>();
         services.AddScoped<ScenePersistence>();
+        services.AddScoped<EfReconstructionStore>();
+        services.AddScoped<IReconstructionStore>(provider => provider.GetRequiredService<EfReconstructionStore>());
+        services.AddScoped<IReconstructionImageStore>(provider => provider.GetRequiredService<EfReconstructionStore>());
+        services.AddScoped<IReconstructionImageCatalog>(provider => provider.GetRequiredService<EfReconstructionStore>());
+        services.AddSingleton<ISceneUnderstandingProvider, MockSceneUnderstandingProvider>();
+        services.AddSingleton<IObjectSegmentationProvider, MockObjectSegmentationProvider>();
+        services.AddSingleton<IDepthEstimationProvider, MockDepthEstimationProvider>();
+        services.AddSingleton<IImageTo3DProvider, MockImageTo3DProvider>();
+        services.AddSingleton<IReconstructionCapabilityRegistry, MockReconstructionCapabilityRegistry>();
+        services.AddScoped<ReconstructionAnalysisService>();
+        services.AddScoped<ReconstructionJobProcessor>();
         return services;
     }
 

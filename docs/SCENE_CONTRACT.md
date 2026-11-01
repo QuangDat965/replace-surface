@@ -29,3 +29,7 @@ Use IDs for references; never infer semantic role from a mesh name such as `mesh
 - Transform changes and UV settings are separately undoable.
 - Scene revisions use optimistic concurrency (`If-Match` or `expectedRevision`); conflicting edits return 409.
 - Every export must include a scene JSON companion, even if 3D export omits semantic metadata.
+
+## Reconstruction analysis and application
+
+`SceneAnalysisResult` v1 is a separate, versioned review artifact; it is not a substitute for `SceneDocument`. It records image-space masks/polygons, candidate surfaces/objects, estimates, confidence, provenance and camera/scale assumptions. Unknown metric scale stays unknown until calibrated or user supplied. Review changes (including include/exclude and explicit links) are applied to a candidate document in preview only. Applying requires explicit confirmation and the current scene revision. Existing linked ObjectIds and SurfaceIds are retained; new entities receive new UUIDs. The source scene is never overwritten as a side effect of analysis or preview.

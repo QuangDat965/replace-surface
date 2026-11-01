@@ -47,7 +47,7 @@ public sealed class LocalAssetStore
         }
     }
 
-    public async Task<(string Id, string ContentType)> SaveTextureAsync(Stream source, string declaredContentType, CancellationToken cancellationToken)
+    public async Task<(string Id, string ContentType, int Width, int Height)> SaveTextureAsync(Stream source, string declaredContentType, CancellationToken cancellationToken)
     {
         var type = ImageTypes.FirstOrDefault(item => item.ContentType.Equals(declaredContentType, StringComparison.OrdinalIgnoreCase));
         if (type == default) throw new InvalidDataException("Texture must be PNG, JPEG, or WebP.");
@@ -99,8 +99,11 @@ public sealed class LocalAssetStore
         var id = await SaveAsync(buffer, MaxImageBytes, cancellationToken);
         var oldPath = Path.Combine(root, id);
         File.Move(oldPath, oldPath + type.Extension);
-        return (id, type.ContentType);
+        return (id, type.ContentType, checked((int)dimensions.Width), checked((int)dimensions.Height));
     }
+
+    public Task<(string Id, string ContentType, int Width, int Height)> SaveRoomImageAsync(Stream source, string declaredContentType, CancellationToken cancellationToken) =>
+        SaveTextureAsync(source, declaredContentType, cancellationToken);
 
     public (Stream Content, string ContentType)? OpenTexture(string id)
     {
@@ -112,6 +115,14 @@ public sealed class LocalAssetStore
             if (File.Exists(path)) return (File.OpenRead(path), type.ContentType);
         }
         return null;
+    }
+
+    public (Stream Content, string ContentType)? OpenRoomImage(string id) => OpenTexture(id);
+
+    public void DeleteRoomImage(string id)
+    {
+        if (id.Length != 32 || id.Any(character => !Uri.IsHexDigit(character))) return;
+        foreach (var type in ImageTypes) File.Delete(Path.Combine(root, id + type.Extension));
     }
 
     private static MagickFormat ContentTypeFormat(string contentType) => contentType switch

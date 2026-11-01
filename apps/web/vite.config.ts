@@ -5,5 +5,5 @@ import { defineConfig } from 'vite'
 export default defineConfig({
   plugins: [react()],
   build: { chunkSizeWarningLimit: 1000 },
-  server: { proxy: { '/health': 'http://127.0.0.1:5080', '/api': 'http://127.0.0.1:5080' } },
+  server: { proxy: { '/health': 'http://127.0.0.1:5248', '/api': 'http://127.0.0.1:5248' } },
 })

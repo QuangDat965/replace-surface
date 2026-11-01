@@ -9,6 +9,7 @@ import {
 } from './objectEditor'
 import type { ObjectTransform, TransformMode } from './objectEditor'
 import { sceneSummary } from './sceneSummary'
+import { ReconstructionWorkspace } from './ReconstructionWorkspace'
 import './App.css'
 
 const sampleSceneId = '11111111-1111-4111-8111-111111111111'
@@ -61,21 +62,22 @@ function App() {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(true)
   const [uploadingMap, setUploadingMap] = useState<string | null>(null)
+  const [reconstructionOpen, setReconstructionOpen] = useState(false)
 
-  const loadScene = useCallback(async (showSpinner = true) => {
+  const loadScene = useCallback(async (showSpinner = true, targetSceneId = sampleSceneId) => {
     if (showSpinner) { setBusy(true); setError(null) }
     try {
-      const sampleResponse = await fetch('/api/sample-scene')
-      if (!sampleResponse.ok) throw new Error(`Sample scene request failed (${sampleResponse.status})`)
-      const sample = await sampleResponse.json() as SceneDocument
-      sceneSummary(sample)
-      const savedResponse = await fetch(`/api/scenes/${sampleSceneId}`)
+      const savedResponse = await fetch(`/api/scenes/${targetSceneId}`)
       let loaded: SceneDocument
       if (savedResponse.ok) {
         loaded = await savedResponse.json() as SceneDocument
         sceneSummary(loaded)
         setStatus(`Loaded saved scene · revision ${loaded.revision}`)
-      } else if (savedResponse.status === 404) {
+      } else if (savedResponse.status === 404 && targetSceneId === sampleSceneId) {
+        const sampleResponse = await fetch('/api/sample-scene')
+        if (!sampleResponse.ok) throw new Error(`Sample scene request failed (${sampleResponse.status})`)
+        const sample = await sampleResponse.json() as SceneDocument
+        sceneSummary(sample)
         loaded = { ...sample, revision: 0 }
         setStatus('Sample room ready · save to create the first database revision')
       } else {
@@ -242,6 +244,14 @@ function App() {
 
   if (!scene) return <main className="loading"><div className="brand-mark">RF</div><p>{status}</p>{error && <p role="alert">{error}</p>}<button onClick={() => void loadScene()} disabled={busy}>Retry</button></main>
 
+  if (reconstructionOpen) return <ReconstructionWorkspace scene={scene} onClose={() => setReconstructionOpen(false)} onApplied={(applied) => {
+    setScene(applied)
+    setPast([]); setFuture([]); setSelectedObjectId(null); setSelectedSurfaceId(null)
+    setActiveMaterialId(applied.materials[0]?.id ?? null)
+    setStatus(`Reconstruction saved · revision ${applied.revision}`)
+    setReconstructionOpen(false)
+  }} />
+
   return <main className="workspace">
     <header className="topbar">
       <div className="brand"><div className="brand-mark">RF</div><div><strong>RoomForge</strong><span>Studio</span></div></div>
@@ -249,7 +259,8 @@ function App() {
       <div className="top-actions">
         <button className="quiet-button" onClick={undo} disabled={busy || past.length === 0} aria-label="Undo edit">Undo</button>
         <button className="quiet-button" onClick={redo} disabled={busy || future.length === 0} aria-label="Redo edit">Redo</button>
-        <button className="quiet-button" onClick={() => void loadScene()} disabled={busy}>Reload</button>
+        <button className="quiet-button" onClick={() => setReconstructionOpen(true)} disabled={busy}>Reconstruct</button>
+        <button className="quiet-button" onClick={() => void loadScene(true, scene.sceneId)} disabled={busy}>Reload</button>
         <button className="save-button" onClick={() => void saveScene()} disabled={busy}>{busy ? 'Working…' : 'Save scene'}</button>
       </div>
     </header>

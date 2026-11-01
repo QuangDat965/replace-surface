@@ -43,3 +43,9 @@ Use `IHttpClientFactory`, typed clients, explicit timeout and CancellationToken;
 - Mock submits and returns realistic normalized metadata; UI labels it mock.
 - 200 result, async 202 pending, 429 retry, 5xx retry, timeout, malformed JSON, unsupported capability, bad signed callback, invalid output URL, oversized file, missing GLB, cancelled job, process restart/recovery.
 - Provider adapter tests run without actual paid requests. Separate opt-in live smoke tests only when credentials/docs are available.
+
+## RoomForge reconstruction interfaces (Phases 03 + 04)
+
+The current Application boundary exposes independent `ISceneUnderstandingProvider`, `IObjectSegmentationProvider`, `IDepthEstimationProvider`, and `IImageTo3DProvider` capabilities plus `IReconstructionCapabilityRegistry`. Implementations return normalized internal DTOs; vendor DTOs must remain inside future Infrastructure adapters. Only deterministic mock implementations are registered in this foundation.
+
+The persisted `SceneAnalysisResult` v1 carries image size, detected architectural surfaces and objects, image-space polygons, estimated dimensions/positions, confidence/provenance, and camera/scale assumptions. Mock provenance is labeled `mock`/`estimated`; absolute scale remains unknown unless a user supplies a reference length. Mock image-to-3D reports mesh generation unavailable and uses editable primitive fallback. No real provider endpoint, credential or paid integration is included.
