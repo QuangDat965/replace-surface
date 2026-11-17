@@ -28,6 +28,7 @@ export type SceneObject = {
   locked: boolean
   measurementStatus: string
   surfaces: Surface[]
+  meshAsset?: { url: string; sourceJobId: string; provider: string; generatedAt: string }
 }
 
 export type SceneDocument = {

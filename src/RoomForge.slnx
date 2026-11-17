@@ -1,4 +1,5 @@
 <Solution>
+  <Project Path="../tests/RoomForge.IntegrationTests/RoomForge.IntegrationTests.csproj" />
   <Project Path="../tests/RoomForge.UnitTests/RoomForge.UnitTests.csproj" />
   <Project Path="RoomForge.Api/RoomForge.Api.csproj" />
   <Project Path="RoomForge.Application/RoomForge.Application.csproj" />

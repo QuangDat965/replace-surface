@@ -7,16 +7,21 @@ public sealed class ReconstructionAnalysisService(
     ISceneUnderstandingProvider sceneUnderstanding,
     IObjectSegmentationProvider segmentation,
     IDepthEstimationProvider depth,
-    IImageTo3DProvider imageTo3D)
+    IImageTo3DProvider imageTo3D,
+    IReconstructionStore jobs)
 {
-    public async Task<SceneAnalysisResult> AnalyzeAsync(ReconstructionImage image, CancellationToken cancellationToken)
+    public async Task<SceneAnalysisResult> AnalyzeAsync(ReconstructionImage image, Guid jobId, CancellationToken cancellationToken)
     {
         var scene = await sceneUnderstanding.UnderstandAsync(image, cancellationToken);
-        var masks = await segmentation.SegmentAsync(image, cancellationToken);
+        var masks = await segmentation.SegmentAsync(image, jobId, jobs, cancellationToken);
         var scale = await depth.EstimateAsync(image, cancellationToken);
         var meshCapabilities = await Task.WhenAll(scene.Objects.Select(item => imageTo3D.GenerateAsync(image, item, cancellationToken)));
-        var surfaces = scene.Surfaces.Select(item => masks.Polygons.TryGetValue(item.Id, out var polygon) ? item with { Polygon = polygon } : item).ToArray();
-        var objects = scene.Objects.Select(item => masks.Polygons.TryGetValue(item.Id, out var polygon) ? item with { Polygon = polygon } : item).ToArray();
+        var surfaces = scene.Surfaces.Select(item => masks.Polygons.TryGetValue(item.Id, out var polygon)
+            ? item with { Polygon = polygon, Confidence = masks.Confidences?.GetValueOrDefault(item.Id) ?? item.Confidence, Provenance = $"{item.Provenance}; segmentation={masks.Provenance}" }
+            : item).ToArray();
+        var objects = scene.Objects.Select(item => masks.Polygons.TryGetValue(item.Id, out var polygon)
+            ? item with { Polygon = polygon, Confidence = masks.Confidences?.GetValueOrDefault(item.Id) ?? item.Confidence, Provenance = $"{item.Provenance}; segmentation={masks.Provenance}" }
+            : item).ToArray();
         return new SceneAnalysisResult(1, StableGuid(image.Id, "analysis-v1"), image.Id, image.Width, image.Height,
             sceneUnderstanding.ProviderId, sceneUnderstanding.ProviderVersion, DateTimeOffset.UtcNow,
             new ReconstructionAssumptions("single-image-perspective-unknown", scale.ScaleStatus, scale.MetersPerPixel,

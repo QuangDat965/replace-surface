@@ -157,7 +157,7 @@ flowchart TD
 
 ### 4.1 Phân loại đối tượng và chiến lược dựng
 
-| Category | Ví dụ | Strategy | AI cần thiết? |
+| Category | Ví dụ | Strategy | AI cần thiết?  |
 |---|---|---|---|
 | `RoomSurface` | floor, wall, ceiling | Polygon/plane parametric geometry | Không bắt buộc |
 | `ArchitecturalComponent` | stairs, counter, kitchen backsplash | Parametric mesh / extruded shape, material từng mặt | Không bắt buộc |

@@ -19,12 +19,14 @@ public sealed class SceneReconstructionConverterTests
         var originalSurfaces = JsonNode.Parse(targetObject.GetProperty("surfaces").GetRawText());
         var targetSurfaceId = targetObject.GetProperty("surfaces")[0].GetProperty("id").GetGuid();
         var source = Guid.NewGuid();
+        var newObjectId = Guid.NewGuid();
         var analysis = new SceneAnalysisResult(1, Guid.NewGuid(), source, 100, 80, "roomforge-mock", "1.0", DateTimeOffset.UtcNow,
             new ReconstructionAssumptions("unknown", "unknown", null, []),
             [new DetectedSurface(Guid.NewGuid(), "floor", new ImagePolygon([new(0, 0), new(100, 0), new(100, 80)]), null, null, .8, "mock", targetSurfaceId)],
             [
                 new DetectedObject(Guid.NewGuid(), "furniture", "Updated chair", new ImagePolygon([new(1, 1), new(10, 1), new(10, 10)]), [1, 0, 0], [1, 1, 1], .8, "mock", true, targetObjectId),
                 new DetectedObject(Guid.NewGuid(), "furniture", "Excluded stool", new ImagePolygon([new(20, 1), new(30, 1), new(30, 10)]), [2, 0, 0], [.5, .5, .5], .7, "mock", false),
+                new DetectedObject(newObjectId, "furniture", "New sofa", new ImagePolygon([new(40, 1), new(60, 1), new(60, 30)]), [2, 0, 0], [1, 1, 1], .8, "mock"),
             ]);
 
         var preview = SceneReconstructionConverter.Convert(baseRoot.GetRawText(), analysis, baseRoot.GetProperty("sceneId").GetGuid(), preserveSceneIdentity: true);
@@ -37,5 +39,6 @@ public sealed class SceneReconstructionConverterTests
         Assert.True(JsonNode.DeepEquals(originalSurfaces, JsonNode.Parse(retained.GetProperty("surfaces").GetRawText())));
         Assert.DoesNotContain(result.RootElement.GetProperty("objects").EnumerateArray(), item => item.GetProperty("name").GetString() == "Excluded stool");
         Assert.Contains(result.RootElement.GetProperty("objects").EnumerateArray(), item => item.GetProperty("id").GetGuid() == targetObjectId);
+        Assert.Contains(result.RootElement.GetProperty("objects").EnumerateArray(), item => item.GetProperty("id").GetGuid() == newObjectId);
     }
 }

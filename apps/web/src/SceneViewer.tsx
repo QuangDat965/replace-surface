@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas } from '@react-three/fiber'
-import { Edges, Grid, OrbitControls, TransformControls } from '@react-three/drei'
+import { Clone, Edges, Grid, OrbitControls, TransformControls, useGLTF } from '@react-three/drei'
 import type { ThreeEvent } from '@react-three/fiber'
+import { Box3, Vector3 } from 'three'
 import type { Group } from 'three'
 import { NoColorSpace, RepeatWrapping, SRGBColorSpace, TextureLoader } from 'three'
 import type { Texture } from 'three'
@@ -21,6 +22,20 @@ type Props = {
   onTransform: (objectId: string, transform: ObjectTransform) => void
 }
 type PbrMaps = { map?: Texture; normalMap?: Texture; roughnessMap?: Texture; metalnessMap?: Texture }
+
+function GeneratedObjectMesh({ url, dimensions }: { url: string; dimensions: [number, number, number] }) {
+  const { scene } = useGLTF(url)
+  const fit = useMemo(() => {
+    const bounds = new Box3().setFromObject(scene)
+    const size = bounds.getSize(new Vector3())
+    const center = bounds.getCenter(new Vector3())
+    return {
+      position: [-center.x, -center.y, -center.z] as [number, number, number],
+      scale: dimensions.map((target, index) => target / Math.max(size.toArray()[index], 0.001)) as [number, number, number],
+    }
+  }, [dimensions, scene])
+  return <Clone object={scene} position={fit.position} scale={fit.scale} />
+}
 
 function SurfaceMaterial({ material, object, surface, selected, attach }: { material: Material | undefined; object: SceneObject; surface: Surface | undefined; selected: boolean; attach: string }) {
   const [textureState, setTextureState] = useState<{ signature: string; maps: PbrMaps }>({ signature: '', maps: {} })
@@ -114,18 +129,20 @@ function RoomObject({ object, scene, selectedSurfaceId, selectedObjectId, transf
     visible={object.visible}
     onClick={(event: ThreeEvent<MouseEvent>) => { event.stopPropagation(); onSelectObject(object) }}
   >
-      <mesh onClick={handleClick} castShadow receiveShadow>
-        <boxGeometry args={object.dimensions} />
-        {materials.map(({ material, surface }, index) => <SurfaceMaterial
-          key={`${object.id}-${index}`}
-          attach={`material-${index}`}
-          material={material}
-          object={object}
-          surface={surface}
-          selected={surface?.id === selectedSurfaceId}
-        />)}
-        {selectedObjectId === object.id && <Edges scale={1.01} threshold={15} color="#f2a65a" />}
-      </mesh>
+      {object.meshAsset
+        ? <GeneratedObjectMesh url={object.meshAsset.url} dimensions={object.dimensions} />
+        : <mesh onClick={handleClick} castShadow receiveShadow>
+            <boxGeometry args={object.dimensions} />
+            {materials.map(({ material, surface }, index) => <SurfaceMaterial
+              key={`${object.id}-${index}`}
+              attach={`material-${index}`}
+              material={material}
+              object={object}
+              surface={surface}
+              selected={surface?.id === selectedSurfaceId}
+            />)}
+            {selectedObjectId === object.id && <Edges scale={1.01} threshold={15} color="#f2a65a" />}
+          </mesh>}
     </group>
   return selectedObjectId === object.id && selectedSurfaceId === null && !object.locked
     ? <TransformControls enabled={object.visible} mode={transformMode} onMouseUp={commitTransform}>{content}</TransformControls>

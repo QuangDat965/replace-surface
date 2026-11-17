@@ -62,6 +62,8 @@ public static class SceneDocumentValidator
                 if (!HasFiniteVector(item, "position", 3, 100_000)) errors.Add("Object position must contain finite supported meter coordinates.");
                 if (!IsValidQuaternion(item)) errors.Add("Object rotation must be a normalized quaternion [x,y,z,w].");
                 if (!HasBoolean(item, "visible") || !HasBoolean(item, "locked")) errors.Add("Object visible and locked values must be booleans.");
+                if (item.TryGetProperty("meshAsset", out var meshAsset) && !IsValidMeshAsset(meshAsset))
+                    errors.Add("Object meshAsset must reference a server-owned object mesh job asset.");
                 if (!item.TryGetProperty("surfaces", out var surfaces) || surfaces.ValueKind != JsonValueKind.Array)
                 { errors.Add("Every object must have a surfaces array."); continue; }
                 foreach (var surface in surfaces.EnumerateArray())
@@ -172,6 +174,17 @@ public static class SceneDocumentValidator
         var rotation = value.GetProperty("rotation").EnumerateArray().Select(component => component.GetDouble()).ToArray();
         var lengthSquared = rotation.Sum(component => component * component);
         return lengthSquared is >= 0.99 and <= 1.01;
+    }
+
+    private static bool IsValidMeshAsset(JsonElement value)
+    {
+        if (value.ValueKind != JsonValueKind.Object || !TryReadGuid(value, "sourceJobId", out var jobId) ||
+            !value.TryGetProperty("url", out var url) || url.ValueKind != JsonValueKind.String ||
+            url.GetString() != $"/api/object-mesh-jobs/{jobId:D}/asset" ||
+            !value.TryGetProperty("provider", out var provider) || provider.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(provider.GetString()) ||
+            !value.TryGetProperty("generatedAt", out var generatedAt) || generatedAt.ValueKind != JsonValueKind.String ||
+            !generatedAt.TryGetDateTimeOffset(out _)) return false;
+        return true;
     }
 
     private static bool HasFiniteVector(JsonElement value, string name, int length, double absoluteMaximum)

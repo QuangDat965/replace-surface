@@ -119,6 +119,13 @@ public sealed class LocalAssetStore
 
     public (Stream Content, string ContentType)? OpenRoomImage(string id) => OpenTexture(id);
 
+    public (Stream Content, string ContentType)? OpenStoredAsset(string id, string contentType)
+    {
+        if (id.Length != 32 || id.Any(character => !Uri.IsHexDigit(character)) || contentType is not ("image/png" or "model/gltf-binary")) return null;
+        var path = Path.Combine(root, id);
+        return File.Exists(path) ? (File.OpenRead(path), contentType) : null;
+    }
+
     public void DeleteRoomImage(string id)
     {
         if (id.Length != 32 || id.Any(character => !Uri.IsHexDigit(character))) return;

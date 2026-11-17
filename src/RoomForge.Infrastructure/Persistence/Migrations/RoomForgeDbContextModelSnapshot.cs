@@ -22,6 +22,40 @@ namespace RoomForge.Infrastructure.Persistence.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("RoomForge.Infrastructure.Persistence.AnnotationDocumentRecord", b =>
+                {
+                    b.Property<Guid>("AnnotationId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Document")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Revision")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("SourceImageId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("AnnotationId");
+
+                    b.HasIndex("SourceImageId");
+
+                    b.HasIndex("ProjectId", "SourceImageId");
+
+                    b.ToTable("AnnotationDocuments");
+                });
+
             modelBuilder.Entity("RoomForge.Infrastructure.Persistence.ImageAssetRecord", b =>
                 {
                     b.Property<Guid>("Id")
@@ -55,6 +89,108 @@ namespace RoomForge.Infrastructure.Persistence.Migrations
                     b.ToTable("ImageAssets");
                 });
 
+            modelBuilder.Entity("RoomForge.Infrastructure.Persistence.ObjectMeshJobRecord", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AnalysisJobId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CropAssetStorageId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("CropContentType")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("CropSha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("ErrorCode")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasColumnType("text");
+
+                    b.Property<int>("ExpectedSceneRevision")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTimeOffset?>("LeaseUntil")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("ObjectId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("OutputAssetStorageId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<int>("Progress")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ProviderId")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<string>("ProviderJobId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid>("SceneId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("SourceImageId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("SubmissionState")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AnalysisJobId");
+
+                    b.HasIndex("SceneId");
+
+                    b.HasIndex("SourceImageId");
+
+                    b.HasIndex("ProjectId", "IdempotencyKey")
+                        .IsUnique();
+
+                    b.HasIndex("Status", "CreatedAt");
+
+                    b.ToTable("ObjectMeshJobs");
+                });
+
             modelBuilder.Entity("RoomForge.Infrastructure.Persistence.ProjectRecord", b =>
                 {
                     b.Property<Guid>("Id")
@@ -68,6 +204,69 @@ namespace RoomForge.Infrastructure.Persistence.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("Projects");
+                });
+
+            modelBuilder.Entity("RoomForge.Infrastructure.Persistence.ProviderSpendReservationRecord", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("AmountUsd")
+                        .HasPrecision(10, 6)
+                        .HasColumnType("numeric(10,6)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("JobId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ProviderId")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("JobId");
+
+                    b.ToTable("ProviderSpendReservations");
+                });
+
+            modelBuilder.Entity("RoomForge.Infrastructure.Persistence.ReconstructionCandidateRecord", b =>
+                {
+                    b.Property<Guid>("CandidateId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AnnotationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Document")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("SceneId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("CandidateId");
+
+                    b.HasIndex("AnnotationId");
+
+                    b.HasIndex("SceneId");
+
+                    b.HasIndex("ProjectId", "SceneId", "CreatedAt");
+
+                    b.ToTable("ReconstructionCandidates");
                 });
 
             modelBuilder.Entity("RoomForge.Infrastructure.Persistence.ReconstructionJobRecord", b =>
@@ -98,11 +297,17 @@ namespace RoomForge.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("ImageId")
                         .HasColumnType("uuid");
 
+                    b.Property<DateTimeOffset?>("LastReconciledAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<DateTimeOffset?>("LeaseUntil")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<int>("MaxAttempts")
                         .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("NextAttemptAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<int>("PreviewBaseRevision")
                         .HasColumnType("integer");
@@ -119,6 +324,20 @@ namespace RoomForge.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("ProjectId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("ProviderId")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<bool>("ProviderIdempotencySupported")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("ProviderJobId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<int>("ReconciliationAttempts")
+                        .HasColumnType("integer");
+
                     b.Property<string>("Stage")
                         .IsRequired()
                         .HasColumnType("text");
@@ -126,6 +345,13 @@ namespace RoomForge.Infrastructure.Persistence.Migrations
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<string>("SubmissionState")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasDefaultValue("not_attempted");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -139,7 +365,43 @@ namespace RoomForge.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("Status", "CreatedAt");
 
+                    b.HasIndex("Status", "NextAttemptAt");
+
                     b.ToTable("ReconstructionJobs");
+                });
+
+            modelBuilder.Entity("RoomForge.Infrastructure.Persistence.RoomTopologyRecord", b =>
+                {
+                    b.Property<Guid>("TopologyId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AnnotationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Document")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Revision")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("TopologyId");
+
+                    b.HasIndex("AnnotationId");
+
+                    b.HasIndex("ProjectId", "AnnotationId", "Revision");
+
+                    b.ToTable("RoomTopologies");
                 });
 
             modelBuilder.Entity("RoomForge.Infrastructure.Persistence.SceneRecord", b =>
@@ -196,12 +458,78 @@ namespace RoomForge.Infrastructure.Persistence.Migrations
                     b.ToTable("SceneVersions");
                 });
 
+            modelBuilder.Entity("RoomForge.Infrastructure.Persistence.AnnotationDocumentRecord", b =>
+                {
+                    b.HasOne("RoomForge.Infrastructure.Persistence.ProjectRecord", null)
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("RoomForge.Infrastructure.Persistence.ImageAssetRecord", null)
+                        .WithMany()
+                        .HasForeignKey("SourceImageId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("RoomForge.Infrastructure.Persistence.ImageAssetRecord", b =>
                 {
                     b.HasOne("RoomForge.Infrastructure.Persistence.ProjectRecord", null)
                         .WithMany()
                         .HasForeignKey("ProjectId")
                         .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("RoomForge.Infrastructure.Persistence.ObjectMeshJobRecord", b =>
+                {
+                    b.HasOne("RoomForge.Infrastructure.Persistence.ReconstructionJobRecord", null)
+                        .WithMany()
+                        .HasForeignKey("AnalysisJobId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("RoomForge.Infrastructure.Persistence.ProjectRecord", null)
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("RoomForge.Infrastructure.Persistence.SceneRecord", null)
+                        .WithMany()
+                        .HasForeignKey("SceneId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("RoomForge.Infrastructure.Persistence.ImageAssetRecord", null)
+                        .WithMany()
+                        .HasForeignKey("SourceImageId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("RoomForge.Infrastructure.Persistence.ProviderSpendReservationRecord", b =>
+                {
+                    b.HasOne("RoomForge.Infrastructure.Persistence.ReconstructionJobRecord", null)
+                        .WithMany()
+                        .HasForeignKey("JobId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("RoomForge.Infrastructure.Persistence.ReconstructionCandidateRecord", b =>
+                {
+                    b.HasOne("RoomForge.Infrastructure.Persistence.AnnotationDocumentRecord", null)
+                        .WithMany()
+                        .HasForeignKey("AnnotationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("RoomForge.Infrastructure.Persistence.SceneRecord", null)
+                        .WithMany()
+                        .HasForeignKey("SceneId")
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
 
@@ -216,6 +544,15 @@ namespace RoomForge.Infrastructure.Persistence.Migrations
                     b.HasOne("RoomForge.Infrastructure.Persistence.ProjectRecord", null)
                         .WithMany()
                         .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("RoomForge.Infrastructure.Persistence.RoomTopologyRecord", b =>
+                {
+                    b.HasOne("RoomForge.Infrastructure.Persistence.AnnotationDocumentRecord", null)
+                        .WithMany()
+                        .HasForeignKey("AnnotationId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

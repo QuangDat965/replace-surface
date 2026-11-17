@@ -1,16 +1,18 @@
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using RoomForge.Application.Projects;
 using RoomForge.Application.Scenes;
 using RoomForge.Application.Reconstruction;
+using RoomForge.Application.Annotations;
 using RoomForge.Infrastructure.Reconstruction;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace RoomForge.Infrastructure.Persistence;
 
 public static class RoomForgePersistenceExtensions
 {
-    public static IServiceCollection AddRoomForgePersistence(this IServiceCollection services, string connectionString)
+    public static IServiceCollection AddRoomForgePersistence(this IServiceCollection services, string connectionString, string? falApiKey = null,
+        string? segmentationProvider = null, string? imageTo3DProvider = null, bool falHunyuanDataTransferApproved = false)
     {
         ValidateConnectionString(connectionString);
         services.AddDbContext<RoomForgeDbContext>(options => options.UseNpgsql(connectionString));
@@ -22,11 +24,43 @@ public static class RoomForgePersistenceExtensions
         services.AddScoped<IReconstructionStore>(provider => provider.GetRequiredService<EfReconstructionStore>());
         services.AddScoped<IReconstructionImageStore>(provider => provider.GetRequiredService<EfReconstructionStore>());
         services.AddScoped<IReconstructionImageCatalog>(provider => provider.GetRequiredService<EfReconstructionStore>());
+        services.AddScoped<IAnnotationStore, EfAnnotationStore>();
+        services.AddScoped<AnnotationPersistence>();
+        services.AddScoped<ITopologyStore, EfTopologyStore>();
+        services.AddScoped<TopologyPersistence>();
+        services.AddScoped<IReconstructionCandidateStore, EfReconstructionCandidateStore>();
+        services.AddScoped<ReconstructionCandidatePersistence>();
+        services.AddScoped<ReconstructionCandidateApplication>();
+        services.AddScoped<IObjectMeshJobStore, EfObjectMeshJobStore>();
+        services.AddScoped<ObjectMeshJobSubmission>();
+        services.AddScoped<ObjectMeshJobProcessor>();
         services.AddSingleton<ISceneUnderstandingProvider, MockSceneUnderstandingProvider>();
-        services.AddSingleton<IObjectSegmentationProvider, MockObjectSegmentationProvider>();
         services.AddSingleton<IDepthEstimationProvider, MockDepthEstimationProvider>();
         services.AddSingleton<IImageTo3DProvider, MockImageTo3DProvider>();
-        services.AddSingleton<IReconstructionCapabilityRegistry, MockReconstructionCapabilityRegistry>();
+        var falOptions = new FalSam3Options(falApiKey ?? Environment.GetEnvironmentVariable("FAL_KEY"));
+        services.AddSingleton(falOptions);
+        var hunyuanEnabled = string.Equals(imageTo3DProvider ?? Environment.GetEnvironmentVariable("ROOMFORGE_IMAGE_TO_3D_PROVIDER"),
+            "fal-hunyuan3d", StringComparison.OrdinalIgnoreCase);
+        var hunyuanOptions = new FalHunyuan3DOptions(falApiKey ?? Environment.GetEnvironmentVariable("FAL_KEY"), hunyuanEnabled, falHunyuanDataTransferApproved);
+        services.AddSingleton(hunyuanOptions);
+        services.AddHttpClient<FalSam3QueueClient>(client => client.Timeout = TimeSpan.FromMinutes(3))
+            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
+        services.AddHttpClient<FalHunyuan3DQueueClient>(client => client.Timeout = TimeSpan.FromMinutes(3))
+            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
+        var falRequested = string.Equals(segmentationProvider ?? Environment.GetEnvironmentVariable("ROOMFORGE_SEGMENTATION_PROVIDER"), "fal-sam3", StringComparison.OrdinalIgnoreCase);
+        var falEnabled = falRequested && falOptions.IsConfigured;
+        var hunyuanAvailable = hunyuanOptions.IsConfigured;
+        if (falEnabled)
+        {
+            services.AddScoped<FalSam3SegmentationProvider>();
+            services.AddScoped<IObjectSegmentationProvider>(provider => provider.GetRequiredService<FalSam3SegmentationProvider>());
+        }
+        else services.AddSingleton<IObjectSegmentationProvider, MockObjectSegmentationProvider>();
+        services.AddSingleton<IReconstructionCapabilityRegistry>(new MockReconstructionCapabilityRegistry(
+            falEnabled ? "fal-ai/sam-3/image" : "roomforge-mock", true,
+            falEnabled ? "Prompted floor-region candidate; result is a provider bounding box requiring human correction." : "Deterministic image-space polygons.",
+            hunyuanAvailable ? "fal-ai/hunyuan3d-v3/image-to-3d" : "roomforge-mock", hunyuanAvailable,
+            hunyuanAvailable ? "Paid Geometry generation enabled after explicit provider and data-transfer configuration; each request reserves $0.50 from the shared $20 cap." : "No image-to-3D provider enabled; editable primitive fallback."));
         services.AddScoped<ReconstructionAnalysisService>();
         services.AddScoped<ReconstructionJobProcessor>();
         return services;

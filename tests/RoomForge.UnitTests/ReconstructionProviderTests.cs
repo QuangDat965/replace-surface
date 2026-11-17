@@ -22,7 +22,7 @@ public sealed class ReconstructionProviderTests
         var mesh = await new MockImageTo3DProvider().GenerateAsync(image, first.Objects[0], CancellationToken.None);
         Assert.False(mesh.Supported);
         Assert.Contains("primitive", mesh.Reason);
-        var polygons = await new MockObjectSegmentationProvider().SegmentAsync(image, CancellationToken.None);
+        var polygons = await new MockObjectSegmentationProvider().SegmentAsync(image, Guid.NewGuid(), null!, CancellationToken.None);
         Assert.Contains(first.Surfaces[0].Id, polygons.Polygons.Keys);
     }
 }

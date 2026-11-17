@@ -1,0 +1,78 @@
+{
+  "contractVersion": 1,
+  "analysisId": "33333333-3333-4333-8333-333333333333",
+  "sourceImageId": "44444444-4444-4444-8444-444444444444",
+  "imageWidth": 800,
+  "imageHeight": 600,
+  "providerId": "roomforge-mock",
+  "providerVersion": "1.0",
+  "createdAt": "2026-10-31T12:00:00+00:00",
+  "assumptions": {
+    "cameraModel": "single-image-perspective-unknown",
+    "scaleStatus": "unknown",
+    "metersPerPixel": null,
+    "notes": [
+      "Golden fixture for SceneAnalysisResult contract v1.",
+      "Absolute scale is unknown because no reference span was supplied."
+    ],
+    "referencePixelLength": null,
+    "referenceLengthMeters": null
+  },
+  "surfaces": [
+    {
+      "id": "55555555-5555-4555-8555-555555555551",
+      "semanticRole": "floor",
+      "polygon": {
+        "points": [
+          { "x": 32, "y": 390 },
+          { "x": 768, "y": 390 },
+          { "x": 792, "y": 582 },
+          { "x": 8, "y": 582 }
+        ]
+      },
+      "estimatedWidthMeters": 3.6,
+      "estimatedHeightMeters": 3.6,
+      "confidence": 0.82,
+      "provenance": "mock/estimated",
+      "linkedSurfaceId": null
+    },
+    {
+      "id": "55555555-5555-4555-8555-555555555552",
+      "semanticRole": "wall",
+      "polygon": {
+        "points": [
+          { "x": 40, "y": 30 },
+          { "x": 760, "y": 30 },
+          { "x": 768, "y": 390 },
+          { "x": 32, "y": 390 }
+        ]
+      },
+      "estimatedWidthMeters": 3.6,
+      "estimatedHeightMeters": 2.7,
+      "confidence": 0.76,
+      "provenance": "mock/estimated",
+      "linkedSurfaceId": null
+    }
+  ],
+  "objects": [
+    {
+      "id": "66666666-6666-4666-8666-666666666661",
+      "type": "furniture",
+      "name": "Detected chair",
+      "polygon": {
+        "points": [
+          { "x": 496, "y": 348 },
+          { "x": 608, "y": 348 },
+          { "x": 624, "y": 540 },
+          { "x": 480, "y": 540 }
+        ]
+      },
+      "positionMeters": [0.9, 0, 0.2],
+      "dimensionsMeters": [0.55, 0.9, 0.55],
+      "confidence": 0.68,
+      "provenance": "mock/estimated",
+      "included": true,
+      "linkedObjectId": null
+    }
+  ]
+}

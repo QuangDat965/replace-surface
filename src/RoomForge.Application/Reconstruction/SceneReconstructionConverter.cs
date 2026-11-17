@@ -43,7 +43,7 @@ public static class SceneReconstructionConverter
             }
         }
 
-        var materialId = materials[0]?["id"]?.GetValue<Guid>() ?? throw new InvalidDataException("Base material ID is missing.");
+        var diagnostics = new JsonArray();
         foreach (var detectedSurface in analysis.Surfaces)
         {
             if (!string.IsNullOrWhiteSpace(detectedSurface.SemanticRole) && detectedSurface.LinkedSurfaceId is { } linkedSurfaceId)
@@ -52,33 +52,13 @@ public static class SceneReconstructionConverter
                     .OfType<JsonObject>().FirstOrDefault(surface => surface["id"]?.GetValue<Guid>() == linkedSurfaceId);
                 if (linked is not null) continue; // Keep the original surface and its material/UV assignment intact.
             }
-            var width = detectedSurface.EstimatedWidthMeters ?? 3.6;
-            var height = detectedSurface.EstimatedHeightMeters ?? (detectedSurface.SemanticRole == "floor" ? 3.6 : 2.7);
-            var isFloor = detectedSurface.SemanticRole == "floor";
-            var objectId = Guid.NewGuid();
-            var surfaceId = Guid.NewGuid();
-            objects.Add(new JsonObject
-            {
-                ["id"] = objectId, ["name"] = detectedSurface.SemanticRole, ["category"] = "architecture",
-                ["geometry"] = new JsonObject { ["kind"] = "box" },
-                ["position"] = new JsonArray(0, isFloor ? -0.025 : height / 2, isFloor ? 0 : -1.8),
-                ["rotation"] = new JsonArray(0, 0, 0, 1),
-                ["dimensions"] = isFloor ? new JsonArray(width, 0.05, height) : new JsonArray(width, height, 0.05),
-                ["visible"] = true, ["locked"] = true, ["measurementStatus"] = "estimated",
-                ["confidence"] = detectedSurface.Confidence, ["provenance"] = detectedSurface.Provenance,
-                ["surfaces"] = new JsonArray(new JsonObject
-                {
-                    ["id"] = surfaceId, ["semanticRole"] = detectedSurface.SemanticRole,
-                    ["faceId"] = isFloor ? "top" : "front", ["materialId"] = materialId,
-                }),
-            });
+            diagnostics.Add($"Surface {detectedSurface.Id} remains a 2D candidate; metric thickness, 3D plane and placement are unknown.");
         }
 
         foreach (var detected in analysis.Objects.Where(item => item.Included))
         {
-            JsonObject? existing = null;
-            if (detected.LinkedObjectId is { } objectId)
-                existing = objects.OfType<JsonObject>().FirstOrDefault(item => item["id"]?.GetValue<Guid>() == objectId);
+            var stableObjectId = detected.LinkedObjectId ?? detected.Id;
+            var existing = objects.OfType<JsonObject>().FirstOrDefault(item => item["id"]?.GetValue<Guid>() == stableObjectId);
             if (existing is not null)
             {
                 existing["name"] = detected.Name;
@@ -93,7 +73,7 @@ public static class SceneReconstructionConverter
 
             objects.Add(new JsonObject
             {
-                ["id"] = Guid.NewGuid(), ["name"] = detected.Name, ["category"] = detected.Type,
+                ["id"] = stableObjectId, ["name"] = detected.Name, ["category"] = detected.Type,
                 ["geometry"] = new JsonObject { ["kind"] = "box" },
                 ["position"] = JsonSerializer.SerializeToNode(detected.PositionMeters),
                 ["rotation"] = new JsonArray(0, 0, 0, 1),
@@ -103,6 +83,7 @@ public static class SceneReconstructionConverter
                 ["surfaces"] = new JsonArray(),
             });
         }
+        if (diagnostics.Count > 0) scene["reconstructionDiagnostics"] = diagnostics;
         return scene.ToJsonString(new JsonSerializerOptions(JsonSerializerDefaults.Web));
     }
 }

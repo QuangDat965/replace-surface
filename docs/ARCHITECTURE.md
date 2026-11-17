@@ -38,6 +38,39 @@ A remote vendor MAY provide segmentation masks, depth estimates, image-to-3D mes
 ## Job model
 Use a persisted `ProcessingJob` table with `Id`, `ProjectId`, `Stage`, `Provider`, `Status`, `ProviderJobId`, `AttemptCount`, `NextAttemptAt`, `LeaseUntil`, `IdempotencyKey`, `ResultRef`, `ErrorCode`, timestamps. Example lifecycle: `queued -> submitting -> provider_processing -> downloading -> normalizing -> succeeded` or `failed/cancelled`. Cancellation may be local-only if provider lacks cancellation. Retry transient failures with backoff and per-provider rate limits. Recover expired leases after restart. Do not equate provider timeout with safe re-submission of a paid generation request.
 
+### Submission states
+
+The persisted job separates *local* progress from *remote* submission confidence, because a lost response must never cause a duplicate paid request:
+
+| Submission state | Meaning | Permitted next action |
+| --- | --- | --- |
+| `NotAttempted` | Never sent to the provider | Submit |
+| `InProgress` | Request is in flight; lease held | Wait; recover lease if it expires |
+| `OutcomeUnknown` | Request may or may not have been accepted (timeout, connection reset, 5xx after send) | **Reconcile first.** Never resubmit blindly |
+| `Accepted` | Provider confirmed and returned an external job ID | Poll |
+| `Running` | Provider reports the remote job is executing | Poll |
+| `Completed` | Provider returned a terminal success | Download, normalize |
+| `TerminalFailure` | Unrecoverable, or attempts exhausted | Report; user-initiated retry only |
+
+An `OutcomeUnknown` job is reconciled before any resubmission: the worker looks up the provider for an existing job matching the recorded idempotency key, and only submits again when the provider documents idempotency support **and** no prior job exists. Providers without documented idempotency that reach `OutcomeUnknown` are marked for human review rather than retried automatically.
+
+## Reconstruction data layers
+
+Five separable artifacts, each with its own version and mutation rules: `SourceImage`, `AnnotationDocument`, `SceneAnalysisResult`, `ReconstructionCandidate`, `SceneDocument`. Only the last is canonical and editable, and it changes only after explicit confirmation with a matching revision. See `docs/RECONSTRUCTION_DATA_LAYERS.md`.
+
+## Geometry reconstruction pipeline
+
+Annotations never convert directly into 3D geometry. The ordered stages are plane constraints, camera calibration, room topology, parametric geometry, then Scene JSON. Every stage returns `Ok | InsufficientData | Unsupported` with diagnostics and never substitutes a default for a missing measurement. See `docs/GEOMETRY_RECONSTRUCTION.md`.
+
+## Coordinate contracts
+
+Five spaces (image pixels, camera, world metres, object-local, texture UV) each have exactly one implementation and round-trip tests that import no UI framework. See `docs/COORDINATE_SYSTEMS.md`.
+
+## Export boundary
+
+`Application` maps Scene JSON to a neutral `SceneExportModel`. SharpGLTF is referenced only by `Infrastructure/Export/`. Requirements cover flat normals, per-face UVs, one primitive per material, ObjectId/SurfaceId preservation in `extras`, bounds validation and round-trip tests. glTF has no visibility flag, so visibility travels in documented `extras` rather than through a lossy renderer trick. See `docs/EXPORT_CONTRACT.md`.
+
+
 ## Data
 Project, ImageAsset, SceneVersion (JSONB), Material, Asset, ProcessingJob; large files stored in local/S3/MinIO. Provider raw response archived as evidence, with sensitive fields scrubbed.
 

@@ -5,8 +5,14 @@ $apiExe = Join-Path $repoRoot 'src\RoomForge.Api\bin\Debug\net10.0\RoomForge.Api
 if (-not (Test-Path -LiteralPath $apiExe)) { throw 'Build the solution before running this verifier.' }
 $previousEnvironment = $env:ASPNETCORE_ENVIRONMENT
 $previousAssetRoot = $env:ROOMFORGE_ASSET_ROOT
+$previousJobDelay = $env:ROOMFORGE_MOCK_PROCESSING_DELAY_MS
+$previousJobLease = $env:ROOMFORGE_JOB_LEASE_SECONDS
+$previousJobPoll = $env:ROOMFORGE_JOB_POLL_INTERVAL
 $env:ASPNETCORE_ENVIRONMENT = 'Development'
 $env:ROOMFORGE_ASSET_ROOT = Join-Path $repoRoot 'data\assets'
+$env:ROOMFORGE_MOCK_PROCESSING_DELAY_MS = '0'
+$env:ROOMFORGE_JOB_LEASE_SECONDS = '3'
+$env:ROOMFORGE_JOB_POLL_INTERVAL = '00:00:00.200'
 $port = Get-Random -Minimum 54000 -Maximum 59000
 $baseUrl = "http://127.0.0.1:$port"
 $server = $null
@@ -72,6 +78,10 @@ try {
         Start-Sleep -Milliseconds 250
     }
     if ($job.status -ne 'succeeded' -or -not $job.analysisJson) { throw "Reconstruction job did not succeed (status: $($job.status))." }
+    $reconciliation = Invoke-RestMethod "$baseUrl/api/reconstruction/jobs/$($job.id)/reconciliation"
+    if ($reconciliation.submissionState -ne 'not_attempted' -or $reconciliation.requiresReconciliationBeforeSubmit -or $reconciliation.reconciliationAttempts -ne 0) {
+        throw 'The reconciliation status endpoint did not return the persisted safe mock-submission state.'
+    }
 
     $analysis = $job.analysisJson | ConvertFrom-Json
     $candidate = $analysis.objects | Select-Object -First 1
@@ -103,10 +113,31 @@ try {
 
     $applied = Invoke-RestMethod "$baseUrl/api/reconstruction/jobs/$($job.id)/apply" -Method Post -ContentType 'application/json' -Body (@{ confirmed = $true; expectedRevision = $preview.baseRevision } | ConvertTo-Json -Compress)
     if ($applied.revision -ne ($before.revision + 1)) { throw 'Explicit apply did not create the next Scene revision.' }
+
+    Stop-RoomForgeApi
+    $env:ROOMFORGE_MOCK_PROCESSING_DELAY_MS = '40000'
+    Start-RoomForgeApi
+    $interruptedKey = "restart-in-flight-$([Guid]::NewGuid().ToString('N'))"
+    $interruptedJob = Invoke-RestMethod "$baseUrl/api/projects/$($project.id)/reconstruction-jobs" -Method Post -ContentType 'application/json' -Body (@{ imageId = $uploaded.imageId; idempotencyKey = $interruptedKey } | ConvertTo-Json -Compress)
+    for ($attempt = 0; $attempt -lt 60; $attempt++) {
+        $interruptedJob = Invoke-RestMethod "$baseUrl/api/reconstruction/jobs/$($interruptedJob.id)"
+        if ($interruptedJob.status -eq 'processing' -and $interruptedJob.stage -eq 'scene_understanding') { break }
+        Start-Sleep -Milliseconds 100
+    }
+    if ($interruptedJob.status -ne 'processing' -or $interruptedJob.stage -ne 'scene_understanding') { throw "Could not observe a worker processing the interruption fixture (status $($interruptedJob.status), stage $($interruptedJob.stage), attempt $($interruptedJob.attemptCount), error $($interruptedJob.errorCode))." }
     Stop-RoomForgeApi
 
+    $env:ROOMFORGE_MOCK_PROCESSING_DELAY_MS = '0'
     Start-RoomForgeApi
     $persistedJob = Invoke-RestMethod "$baseUrl/api/reconstruction/jobs/$($job.id)"
+    for ($attempt = 0; $attempt -lt 100; $attempt++) {
+        $interruptedJob = Invoke-RestMethod "$baseUrl/api/reconstruction/jobs/$($interruptedJob.id)"
+        if ($interruptedJob.status -in @('succeeded', 'failed', 'cancelled')) { break }
+        Start-Sleep -Milliseconds 250
+    }
+    if ($interruptedJob.status -ne 'succeeded' -or $interruptedJob.attemptCount -ne 2 -or -not $interruptedJob.analysisJson) {
+        throw "In-flight worker operation did not recover after API restart (status $($interruptedJob.status), attempts $($interruptedJob.attemptCount))."
+    }
     $persistedScene = Invoke-RestMethod $sceneUrl
     $persistedChair = Get-SceneObject $persistedScene $chair.id
     if ($persistedJob.status -ne 'succeeded' -or -not $persistedJob.analysisJson) { throw 'Job status/result did not survive API restart.' }
@@ -115,11 +146,14 @@ try {
     $persistedImageResponse = $http.GetAsync("$baseUrl$($uploaded.url)").GetAwaiter().GetResult()
     if (-not $persistedImageResponse.IsSuccessStatusCode) { throw 'Uploaded image bytes were not available after API restart.' }
 
-    Write-Output "PASS: local roomforge image asset, idempotent reconstruction job/result, preview non-mutation, explicit apply, stable ObjectId/SurfaceIds, dimensions, and surface material/UV data persisted after API restart (scene revision $($persistedScene.revision))."
+    Write-Output "PASS: local roomforge image asset, idempotent job/result, reconciliation status, preview non-mutation, explicit apply, stable ObjectId/SurfaceIds, Scene/material persistence and in-flight job recovery after an API process restart (recovered job attempts $($interruptedJob.attemptCount), scene revision $($persistedScene.revision))."
 }
 finally {
     Stop-RoomForgeApi
     $http.Dispose()
     if ($null -eq $previousEnvironment) { Remove-Item Env:ASPNETCORE_ENVIRONMENT -ErrorAction SilentlyContinue } else { $env:ASPNETCORE_ENVIRONMENT = $previousEnvironment }
     if ($null -eq $previousAssetRoot) { Remove-Item Env:ROOMFORGE_ASSET_ROOT -ErrorAction SilentlyContinue } else { $env:ROOMFORGE_ASSET_ROOT = $previousAssetRoot }
+    if ($null -eq $previousJobDelay) { Remove-Item Env:ROOMFORGE_MOCK_PROCESSING_DELAY_MS -ErrorAction SilentlyContinue } else { $env:ROOMFORGE_MOCK_PROCESSING_DELAY_MS = $previousJobDelay }
+    if ($null -eq $previousJobLease) { Remove-Item Env:ROOMFORGE_JOB_LEASE_SECONDS -ErrorAction SilentlyContinue } else { $env:ROOMFORGE_JOB_LEASE_SECONDS = $previousJobLease }
+    if ($null -eq $previousJobPoll) { Remove-Item Env:ROOMFORGE_JOB_POLL_INTERVAL -ErrorAction SilentlyContinue } else { $env:ROOMFORGE_JOB_POLL_INTERVAL = $previousJobPoll }
 }
