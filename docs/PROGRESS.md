@@ -331,3 +331,41 @@ Added Khronos `gltf-validator` (Apache-2.0, upstream KhronosGroup) as a web dev 
 Expanded the SharpGLTF unit round-trip to parse the GLB JSON/BIN chunks, decode every POSITION float from its buffer views, apply the serialized glTF node matrix, and compare per-object world AABBs against source Scene dimensions/rotation/position to 0.001 m. This first revealed the test's initial matrix layout conversion was transposed; the correct column-major glTF data mapping to System.Numerics row-vector convention is now asserted. Exporter-focused unit tests pass 2/2; the focused Playwright export plus Khronos validation path passed 1/1. Full suites are to be rerun after this slice.
 
 This closes M6's independent validator and bounds parity checks for the supported box exporter. M6 remains open for texture embedding and generated-scene full export acceptance. Phase 05/06 live provider gates and M7 operational automation remain open; provider spend stays $0/$20 USD.
+
+### Mock kitchen and isolated photo replacement — 2026-11-17
+
+Added an authored parametric kitchen template with stable object/surface IDs, independent countertop top/edges, cabinet fronts, backsplash, walls and floor. A template picker loads the kitchen into its own scene ID, leaving the original saved scene intact. Existing scene revision checks and PostgreSQL storage handle saves. The kitchen dimensions are illustrative/estimated, not inferred from a photo; no external model or third-party asset is bundled.
+
+Added a selected-surface photo workflow: PNG/JPEG/WebP selection, rectangular percentage crop, bounded PNG conversion and upload through the existing texture endpoint. Apply creates a new material assigned only to the selected SurfaceId, with neutral white tint and one image across the face by default. Rotation, repeat, physical tile dimensions, undo/redo and persistence reuse the existing editor. Selection highlighting now uses a subtle emissive overlay instead of replacing the material color. The original shared-material library editor still intentionally edits every surface referencing that material; the new photo action isolates the selected surface.
+
+No AI calls, keys or provider changes. Automated and browser tests were intentionally omitted at the user's request. Build result is recorded below; save/upload/browser acceptance has not been rerun for this slice. External GLB imports remain a future slice requiring licensed models with separable semantic surfaces. Existing GLB export limitations for mapped textures remain.
+
+Verification: `npm --prefix apps/web run build` passed (TypeScript and Vite); the existing large-bundle advisory remains. The public Tunnelmole root returned HTTP 200 after the update. No test suites or scripted browser checks were run for this change, as requested.
+
+### Tunnel upload response fix — 2026-11-17
+
+Reproduced the reported photo-upload failure: a valid PNG returned local HTTP
+201, while the same POST through Tunnelmole returned nginx HTTP 502. Tunnel logs
+confirmed that the API had actually returned 201. Added a loopback buffered HTTP
+origin (`apps/web/scripts/tunnel-origin.mjs`) to remove hop-by-hop response headers
+and supply Content-Length before forwarding via Tunnelmole. Started Vite on
+5174 and the bridge on the existing tunnel origin 5173, retaining the public URL.
+After the change the public texture POST returned 201 with JSON asset URL and
+public database health returned 200. No test suite was run, per user instruction;
+these were targeted diagnostic HTTP requests. The bridge is HTTP-only and does
+not forward Vite HMR; its startup instructions are in LOCAL_OPERATIONS.md.
+
+### Uploaded texture rendering fix — 2026-11-17
+
+Made PBR texture slots explicit (null when absent) and invalidate the material
+shader when asynchronously loaded maps change. Surface texture failures now reach
+the visible error message, including reconstruction previews; late image loads
+after effect cleanup are disposed. Also guarded scene loads by request generation:
+the overlapping initial requests in React StrictMode could otherwise clear an
+already-selected surface when the older request finished later.
+
+Web production build passed. A targeted browser diagnosis through the public
+Tunnelmole URL applied an unsaved red/yellow diagnostic PNG to the main countertop;
+the captured image visibly shows the pattern on that top only, with the countertop
+edge, island, cabinets and walls unchanged. No alerts were shown. The diagnostic
+scene was not saved. No test suite was run.

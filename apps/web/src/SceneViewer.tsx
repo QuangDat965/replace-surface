@@ -19,6 +19,7 @@ type Props = {
   transformMode: TransformMode
   onSelect: (surface: Surface) => void
   onSelectObject: (object: SceneObject) => void
+  onTextureError: (message: string) => void
   onTransform: (objectId: string, transform: ObjectTransform) => void
 }
 type PbrMaps = { map?: Texture; normalMap?: Texture; roughnessMap?: Texture; metalnessMap?: Texture }
@@ -37,8 +38,10 @@ function GeneratedObjectMesh({ url, dimensions }: { url: string; dimensions: [nu
   return <Clone object={scene} position={fit.position} scale={fit.scale} />
 }
 
-function SurfaceMaterial({ material, object, surface, selected, attach }: { material: Material | undefined; object: SceneObject; surface: Surface | undefined; selected: boolean; attach: string }) {
+function SurfaceMaterial({ material, object, surface, selected, attach, onTextureError }: { material: Material | undefined; object: SceneObject; surface: Surface | undefined; selected: boolean; attach: string; onTextureError: Props['onTextureError'] }) {
   const [textureState, setTextureState] = useState<{ signature: string; maps: PbrMaps }>({ signature: '', maps: {} })
+  const textureErrorHandler = useRef(onTextureError)
+  useEffect(() => { textureErrorHandler.current = onTextureError }, [onTextureError])
   const uv = surface?.uv
   const rotationRadians = (uv?.rotationDegrees ?? 0) * Math.PI / 180
   const offsetU = uv?.offset?.[0] ?? 0
@@ -63,6 +66,7 @@ function SurfaceMaterial({ material, object, surface, selected, attach }: { mate
     ] as const
     const loadTexture = (key: typeof entries[number][0], url: string) => new Promise<void>((resolve) => {
       loader.load(url, (texture) => {
+        if (cancelled) { texture.dispose(); resolve(); return }
         texture.wrapS = RepeatWrapping
         texture.wrapT = RepeatWrapping
         texture.repeat.set(repeatU, repeatV)
@@ -77,7 +81,10 @@ function SurfaceMaterial({ material, object, surface, selected, attach }: { mate
         if (key === 'roughness') next.roughnessMap = texture
         if (key === 'metalness') next.metalnessMap = texture
         resolve()
-      }, undefined, () => resolve())
+      }, undefined, () => {
+        if (!cancelled) textureErrorHandler.current('Không hiển thị được ảnh vật liệu trong khung 3D. Hãy tải lại ảnh hoặc kiểm tra kết nối.')
+        resolve()
+      })
     })
     void Promise.all(entries.flatMap(([key, url]) => url ? [loadTexture(key, url)] : [])).then(() => {
       if (cancelled) loaded.forEach((texture) => texture.dispose())
@@ -90,14 +97,20 @@ function SurfaceMaterial({ material, object, surface, selected, attach }: { mate
 
   return <meshStandardMaterial
     attach={attach}
-    color={selected ? '#f2a65a' : material?.baseColor ?? '#c8ccc7'}
+    color={material?.baseColor ?? '#c8ccc7'}
+    emissive={selected ? '#a47b43' : '#000000'}
+    emissiveIntensity={selected ? 0.12 : 0}
     roughness={material?.roughness ?? 0.8}
     metalness={material?.metalness ?? 0}
-    {...maps}
+    map={maps.map ?? null}
+    normalMap={maps.normalMap ?? null}
+    roughnessMap={maps.roughnessMap ?? null}
+    metalnessMap={maps.metalnessMap ?? null}
+    onUpdate={(instance) => { instance.needsUpdate = true }}
   />
 }
 
-function RoomObject({ object, scene, selectedSurfaceId, selectedObjectId, transformMode, onSelect, onSelectObject, onTransform }: Props & { object: SceneObject }) {
+function RoomObject({ object, scene, selectedSurfaceId, selectedObjectId, transformMode, onSelect, onSelectObject, onTransform, onTextureError }: Props & { object: SceneObject }) {
   const objectGroup = useRef<Group>(null)
   const byFace = new Map(object.surfaces.map((surface) => [surface.faceId, surface]))
   const materials = boxFaceIds.map((faceId) => {
@@ -140,6 +153,7 @@ function RoomObject({ object, scene, selectedSurfaceId, selectedObjectId, transf
               object={object}
               surface={surface}
               selected={surface?.id === selectedSurfaceId}
+              onTextureError={onTextureError}
             />)}
             {selectedObjectId === object.id && <Edges scale={1.01} threshold={15} color="#f2a65a" />}
           </mesh>}
@@ -149,13 +163,13 @@ function RoomObject({ object, scene, selectedSurfaceId, selectedObjectId, transf
     : content
 }
 
-export function SceneViewer({ scene, selectedSurfaceId, selectedObjectId, transformMode, onSelect, onSelectObject, onTransform }: Props) {
+export function SceneViewer({ scene, selectedSurfaceId, selectedObjectId, transformMode, onSelect, onSelectObject, onTransform, onTextureError }: Props) {
   return <Canvas camera={{ position: [5, 3.5, 6], fov: 45 }} shadows dpr={[1, 2]}>
     <color attach="background" args={['#111a17']} />
     <ambientLight intensity={1.2} />
     <directionalLight position={[4, 8, 5]} intensity={2.2} castShadow />
     <group>
-      {scene.objects.map((object) => <RoomObject key={object.id} object={object} scene={scene} selectedSurfaceId={selectedSurfaceId} selectedObjectId={selectedObjectId} transformMode={transformMode} onSelect={onSelect} onSelectObject={onSelectObject} onTransform={onTransform} />)}
+      {scene.objects.map((object) => <RoomObject key={object.id} object={object} scene={scene} selectedSurfaceId={selectedSurfaceId} selectedObjectId={selectedObjectId} transformMode={transformMode} onSelect={onSelect} onSelectObject={onSelectObject} onTransform={onTransform} onTextureError={onTextureError} />)}
     </group>
     <Grid position={[0, -0.11, 0]} args={[12, 12]} cellSize={0.5} cellThickness={0.6} cellColor="#45534d" sectionSize={1} sectionColor="#68776f" fadeDistance={16} infiniteGrid />
     <OrbitControls target={[0, 1, 0]} makeDefault minDistance={2} maxDistance={16} />

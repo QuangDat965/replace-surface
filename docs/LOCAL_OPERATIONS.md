@@ -40,3 +40,21 @@ The repository does not yet automate a backup/restore drill or asset/database co
 - The $20 ledger tracks estimated provider reservations, not a provider's final invoice or tax/credit adjustments.
 - Object-mesh apply/reload has not yet been exercised through an API restart with a provider-generated mesh.
 - GLB export currently rejects non-box geometry and mapped texture assets; see `EXPORT_CONTRACT.md`.
+
+## Tunnelmole development origin
+
+Tunnelmole can return nginx 502 for API responses forwarded with hop-by-hop
+`Transfer-Encoding: chunked` / `Connection` headers even when the API returned
+201 and already stored the image. Use the buffered HTTP origin for this tunnel:
+
+```sh
+# Terminal 1, apps/web (set the exact public hostname returned by your tunnel)
+__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=<public-hostname> npm run dev -- --host 127.0.0.1 --port 5174 --strictPort
+# Terminal 2, apps/web; point the tunnel at 5173
+node scripts/tunnel-origin.mjs
+```
+
+The origin binds only to loopback, buffers local responses, removes hop-by-hop
+headers and sets Content-Length. This is a development HTTP bridge; it does not
+forward Vite HMR WebSocket upgrades. Refresh the page after source changes.
+The normal non-tunnel development command is unchanged.

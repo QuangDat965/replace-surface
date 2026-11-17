@@ -615,7 +615,7 @@ export function ReconstructionWorkspace({ scene, onClose, onApplied }: Props) {
             </div>}
             {geometryCandidate && <div className="candidate-apply-controls"><strong>Phương án {geometryCandidate.candidateId} · dựa trên phiên bản cảnh {geometryCandidate.baseSceneRevision}</strong>
               {geometryPreviewScene && <div className="candidate-view" aria-label="3D geometry candidate preview"><Suspense fallback={<div className="canvas-loading">Đang chuẩn bị bản xem trước…</div>}>
-                <SceneViewer scene={geometryPreviewScene} selectedSurfaceId={null} selectedObjectId={null} transformMode="translate" onSelect={() => undefined} onSelectObject={() => undefined} onTransform={() => undefined} />
+                <SceneViewer scene={geometryPreviewScene} selectedSurfaceId={null} selectedObjectId={null} transformMode="translate" onSelect={() => undefined} onSelectObject={() => undefined} onTransform={() => undefined} onTextureError={setError} />
               </Suspense></div>}
               <label><input type="checkbox" checked={confirmGeometryApply} disabled={busy} onChange={(event) => setConfirmGeometryApply(event.currentTarget.checked)} /> Áp dụng hình học này vào cảnh sau khi kiểm tra phiên bản và kích thước.</label>
               <button className="save-button" disabled={busy || !confirmGeometryApply} onClick={() => void applyGeometryCandidate()}>Áp dụng hình học đã xác nhận</button>
@@ -734,7 +734,7 @@ export function ReconstructionWorkspace({ scene, onClose, onApplied }: Props) {
       {preview && <section className="reconstruction-card preview-card" aria-label="Xem trước cảnh dựng">
         <span className="field-label">4 · XEM TRƯỚC · CẢNH CHƯA ĐƯỢC LƯU</span>
         <p>{preview.createsNewScene ? 'Một cảnh mới sẽ được tạo.' : 'Cảnh hiện tại chỉ được cập nhật sau khi xác nhận.'} Phiên bản gốc {preview.baseRevision}.</p>
-        <div className="candidate-view"><Suspense fallback={<p>Đang chuẩn bị bản xem trước 3D…</p>}><SceneViewer scene={JSON.parse(preview.document) as SceneDocument} selectedSurfaceId={null} selectedObjectId={null} transformMode="translate" onSelect={() => undefined} onSelectObject={() => undefined} onTransform={() => undefined} /></Suspense></div>
+        <div className="candidate-view"><Suspense fallback={<p>Đang chuẩn bị bản xem trước 3D…</p>}><SceneViewer scene={JSON.parse(preview.document) as SceneDocument} selectedSurfaceId={null} selectedObjectId={null} transformMode="translate" onSelect={() => undefined} onSelectObject={() => undefined} onTransform={() => undefined} onTextureError={setError} /></Suspense></div>
         <label className="confirm-toggle"><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.currentTarget.checked)} /> Tôi đã xem và xác nhận lưu phương án này thành một phiên bản dữ liệu cảnh JSON.</label>
         <button className="save-button" onClick={() => void applyPreview()} disabled={!confirmed || busy}>{busy ? 'Đang áp dụng…' : preview.createsNewScene ? 'Xác nhận và tạo cảnh mới' : 'Xác nhận và cập nhật cảnh'}</button>
       </section>}

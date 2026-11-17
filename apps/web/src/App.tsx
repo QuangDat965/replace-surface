@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import type { Material, SceneDocument, SceneObject, Surface } from './sceneTypes'
 import { assignMaterialToSurface, findSurfaceOwner } from './sceneTypes'
@@ -10,10 +10,12 @@ import {
 import type { ObjectTransform, TransformMode } from './objectEditor'
 import { sceneSummary } from './sceneSummary'
 import { ReconstructionWorkspace } from './ReconstructionWorkspace'
+import { createDemoKitchen, kitchenSceneId } from './demoKitchen'
+import { MaterialPhotoUpload } from './MaterialPhotoUpload'
 import './App.css'
 
 const sampleSceneId = '11111111-1111-4111-8111-111111111111'
-const semanticLabels: Record<string, string> = { floor: 'Sàn', wall: 'Tường', ceiling: 'Trần', countertop: 'Mặt bàn', cabinet: 'Tủ', furniture: 'Đồ nội thất', object: 'Đồ vật' }
+const semanticLabels: Record<string, string> = { floor: 'Sàn', wall: 'Tường', ceiling: 'Trần', countertop_top: 'Mặt bàn', countertop_edge: 'Cạnh bàn', cabinet_front: 'Cánh tủ', backsplash: 'Ốp tường bếp', countertop: 'Mặt bàn', cabinet: 'Tủ', furniture: 'Đồ nội thất', object: 'Đồ vật' }
 const SceneViewer = lazy(() => import('./SceneViewer').then((module) => ({ default: module.SceneViewer })))
 const mapFields = [
   ['baseColor', 'Ảnh màu nền'], ['roughness', 'Bản đồ độ nhám'], ['metalness', 'Bản đồ kim loại'], ['normal', 'Bản đồ pháp tuyến'],
@@ -66,7 +68,9 @@ function App() {
   const [uploadingMap, setUploadingMap] = useState<string | null>(null)
   const [reconstructionOpen, setReconstructionOpen] = useState(false)
 
-  const loadScene = useCallback(async (showSpinner = true, targetSceneId = sampleSceneId) => {
+  const loadRequest = useRef(0)
+  const loadScene = useCallback(async (showSpinner = true, targetSceneId = kitchenSceneId) => {
+    const requestId = ++loadRequest.current
     if (showSpinner) { setBusy(true); setError(null) }
     try {
       const savedResponse = await fetch(`/api/scenes/${targetSceneId}`)
@@ -75,6 +79,10 @@ function App() {
         loaded = await savedResponse.json() as SceneDocument
         sceneSummary(loaded)
         setStatus(`Đã tải cảnh · phiên bản ${loaded.revision}`)
+      } else if (savedResponse.status === 404 && targetSceneId === kitchenSceneId) {
+        loaded = createDemoKitchen()
+        sceneSummary(loaded)
+        setStatus('Bếp mẫu đã sẵn sàng · chọn bề mặt và tải ảnh vật liệu')
       } else if (savedResponse.status === 404 && targetSceneId === sampleSceneId) {
         const sampleResponse = await fetch('/api/sample-scene')
         if (!sampleResponse.ok) throw new Error(`Không tải được cảnh mẫu (${sampleResponse.status})`)
@@ -86,15 +94,18 @@ function App() {
         const body = await savedResponse.json().catch(() => null)
         throw new Error(body?.detail ?? `Không tải được cảnh (${savedResponse.status})`)
       }
+      if (requestId !== loadRequest.current) return
       setScene(loaded)
       setPast([])
       setFuture([])
       setActiveMaterialId(loaded.materials[0]?.id ?? null)
       setSelectedSurfaceId(null)
+      setSelectedObjectId(null)
     } catch (cause) {
+      if (requestId !== loadRequest.current) return
       setError(cause instanceof Error ? cause.message : 'Không tải được cảnh')
       setStatus('Cảnh không khả dụng')
-    } finally { setBusy(false) }
+    } finally { if (requestId === loadRequest.current) setBusy(false) }
   }, [])
 
   // Fetch the canonical persisted scene when the editor mounts.
@@ -139,7 +150,7 @@ function App() {
     if (!scene) return
     const owner = findSurfaceOwner(scene, surface.id)
     setSelectedSurfaceId(surface.id)
-    if (owner) setSelectedObjectId(owner.object.id)
+    if (owner) { setSelectedObjectId(owner.object.id); setActiveMaterialId(owner.surface.materialId) }
     setDeleteConfirmationId(null)
     setStatus(`Đã chọn ${displaySemantic(surface.semanticRole)}`)
   }
@@ -183,6 +194,21 @@ function App() {
     }
     commit({ ...scene, materials: [...scene.materials, material] }, 'Đã thêm vật liệu mới · hãy lưu để ghi lại')
     setActiveMaterialId(material.id)
+  }
+
+  async function applySurfacePhoto(file: Blob) {
+    if (!scene || !selected || !selected.material) throw new Error('Hãy chọn một bề mặt trước.')
+    setUploadingMap('surface'); setError(null)
+    try {
+      const response = await fetch('/api/assets/textures', { method: 'POST', headers: { 'Content-Type': file.type }, body: file })
+      const result = await response.json().catch(() => null)
+      if (!response.ok) throw new Error(result?.detail ?? result?.error ?? `Không tải được ảnh vật liệu (HTTP ${response.status}). Hãy thử lại; đường kết nối có thể đang gián đoạn.`)
+      const size = faceSizeMeters(selected.object, selected.surface.faceId)
+      const material: Material = { ...selected.material, id: crypto.randomUUID(), name: 'Ảnh · ' + displaySemantic(selected.surface.semanticRole), baseColor: '#ffffff', tileSizeMeters: size, maps: { baseColor: result.url as string } }
+      const next = assignMaterialToSurface({ ...scene, materials: [...scene.materials, material] }, selected.surface.id, material.id)
+      commit(updateSurfaceUv(next, selected.surface.id, { rotationDegrees: 0, offset: [0, 0], repeat: [1, 1] }), 'Đã thay ảnh cho riêng bề mặt đang chọn · hãy lưu cảnh')
+      setActiveMaterialId(material.id)
+    } finally { setUploadingMap(null) }
   }
 
   async function uploadTexture(event: ChangeEvent<HTMLInputElement>, mapKey: string) {
@@ -275,10 +301,10 @@ function App() {
     setReconstructionOpen(false)
   }} />
 
-  return <main className="workspace">
+  return <main className={`workspace${uploadingMap === 'surface' ? ' uploading-surface' : ''}`}>
     <header className="topbar">
       <div className="brand"><div className="brand-mark">RF</div><div><strong>RoomForge</strong><span>Không gian thiết kế</span></div></div>
-      <div className="project-title"><span className="crumb">Dự án&nbsp; / &nbsp;</span> Phòng mẫu <span className="saved-indicator" aria-label={status}>{status.startsWith('Đã lưu') ? 'Đã lưu' : 'Đang sửa'}</span></div>
+      <div className="project-title"><span className="crumb">Dự án&nbsp; / &nbsp;</span> {scene.sceneId === kitchenSceneId ? 'Bếp mẫu' : 'Phòng mẫu'} <span className="saved-indicator" aria-label={status}>{status.startsWith('Đã lưu') ? 'Đã lưu' : 'Đang sửa'}</span></div>
       <div className="top-actions">
         <button className="quiet-button" onClick={undo} disabled={busy || past.length === 0} aria-label="Hoàn tác chỉnh sửa">Hoàn tác</button>
         <button className="quiet-button" onClick={redo} disabled={busy || future.length === 0} aria-label="Làm lại chỉnh sửa">Làm lại</button>
@@ -292,14 +318,16 @@ function App() {
     <div className="body-layout">
       <aside className="left-rail"><button className="rail-button active" aria-label="Trình dựng phòng">◈</button><button className="rail-button" aria-label="Vật liệu" title="Thư viện vật liệu và công cụ chỉnh PBR">▧</button><button className="rail-button" aria-label="Chú thích ảnh" title="Chú thích ảnh">◤</button></aside>
       <section className="viewport-panel" aria-label="Khung nhìn phòng 3D">
-        <div className="viewport-heading"><div><span className="eyebrow">KHUNG NHÌN 3D</span><h1>Phòng mẫu</h1></div><span className="unit-pill">MÉT · TRỤC Y HƯỚNG LÊN</span></div>
-        <div className="scene-canvas"><Suspense fallback={<div className="canvas-loading">Đang chuẩn bị phòng 3D…</div>}><SceneViewer scene={scene} selectedSurfaceId={selectedSurfaceId} selectedObjectId={selectedObjectId} transformMode={transformMode} onSelect={selectSurface} onSelectObject={selectObject} onTransform={(objectId, transform) => commit(updateObjectTransform(scene, objectId, transform), 'Đã thay đổi vị trí hoặc kích thước · hãy lưu để ghi lại')} /></Suspense><div className="canvas-hint">Kéo để xoay <i /> Cuộn để phóng to/thu nhỏ <i /> Chọn đồ vật hoặc bề mặt để chỉnh sửa</div></div>
+        <div className="viewport-heading"><div><span className="eyebrow">KHUNG NHÌN 3D</span><h1>{scene.sceneId === kitchenSceneId ? 'Bếp mẫu' : 'Phòng mẫu'}</h1></div><span className="unit-pill">MÉT · TRỤC Y HƯỚNG LÊN</span></div>
+        <div className="scene-canvas"><Suspense fallback={<div className="canvas-loading">Đang chuẩn bị phòng 3D…</div>}><SceneViewer scene={scene} selectedSurfaceId={selectedSurfaceId} selectedObjectId={selectedObjectId} transformMode={transformMode} onSelect={selectSurface} onSelectObject={selectObject} onTextureError={setError} onTransform={(objectId, transform) => commit(updateObjectTransform(scene, objectId, transform), 'Đã thay đổi vị trí hoặc kích thước · hãy lưu để ghi lại')} /></Suspense><div className="canvas-hint">Kéo để xoay <i /> Cuộn để phóng to/thu nhỏ <i /> Chọn đồ vật hoặc bề mặt để chỉnh sửa</div></div>
         <div className="scene-footer"><span>Cảnh mẫu</span><span>{scene.objects.length} đồ vật · {scene.objects.reduce((count, object) => count + object.surfaces.length, 0)} bề mặt có thể chọn</span><span>Phiên bản {scene.revision}</span></div>
       </section>
       <aside className="inspector">
         <div className="inspector-head"><span className="eyebrow">CHỈNH SỬA PHÒNG</span><h2>{selected ? displaySemantic(selected.surface.semanticRole) : selectedObject?.name ?? 'Chọn đồ vật hoặc bề mặt'}</h2></div>
         {selected && <div className="selection-card"><span className="selection-dot" /><div><strong>{selected.object.name}</strong><small>{selected.surface.id}</small></div></div>}
 
+        <section className="demo-intro"><span className="field-label">KHÔNG GIAN MẪU</span><p>Bếp minh họa · không sử dụng AI</p><label>Chọn không gian<select aria-label="Không gian mẫu" value={scene.sceneId === kitchenSceneId ? kitchenSceneId : sampleSceneId} disabled={busy || uploadingMap !== null} onChange={event => { if (past.length > 0 && !window.confirm('Đổi không gian sẽ bỏ các chỉnh sửa chưa lưu. Tiếp tục?')) return; void loadScene(true, event.target.value) }}><option value={kitchenSceneId}>Bếp mẫu · bàn bếp & tủ</option><option value={sampleSceneId}>Phòng mẫu ban đầu</option></select></label><small>1. Chọn bề mặt → 2. Tải ảnh → 3. Chỉnh lát → 4. Lưu cảnh</small></section>
+        <MaterialPhotoUpload key={selectedSurfaceId} surfaceName={selected ? displaySemantic(selected.surface.semanticRole) + ' · ' + selected.object.name : null} disabled={busy || uploadingMap !== null} onApply={applySurfacePhoto} />
         <section className="object-library" aria-label="Đồ vật">
           <div className="section-title"><span className="field-label">ĐỒ VẬT ({scene.objects.length})</span></div>
           {scene.objects.map((object) => <div className={`object-row${object.id === selectedObjectId ? ' selected' : ''}`} key={object.id}>
@@ -389,7 +417,7 @@ function App() {
         <div className="surface-list" aria-label="Các bề mặt trong phòng">
           <span className="field-label">BỀ MẶT TRONG PHÒNG</span>
           {scene.objects.flatMap((object) => object.surfaces.map((surface) => ({ object, surface }))).map(({ object, surface }) =>
-            <button key={surface.id} className={`surface-row${surface.id === selectedSurfaceId ? ' selected' : ''}`} aria-pressed={surface.id === selectedSurfaceId} onClick={() => { setSelectedSurfaceId(surface.id); setStatus(`Đã chọn ${displaySemantic(surface.semanticRole)}`) }}>
+            <button key={surface.id} className={`surface-row${surface.id === selectedSurfaceId ? ' selected' : ''}`} aria-pressed={surface.id === selectedSurfaceId} onClick={() => selectSurface(surface)}>
               <span>{displaySemantic(surface.semanticRole)}</span><small>{object.name}</small>
             </button>)}
         </div>
